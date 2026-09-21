@@ -11,7 +11,7 @@ export type GameState = {
 };
 export const ABILITIES = {
   hyperspaceCooldown: 3,
-  shieldDuration: 1,
+  shieldDuration: 2,
   shieldRecharge: 5,
 } as const;
 type Body = { x: number; y: number; vx: number; vy: number };
@@ -29,6 +29,14 @@ type Particle = Body & {
   radius: number;
 };
 type Bullet = Body & { life: number };
+type Shard = Body & {
+  life: number;
+  max: number;
+  angle: number;
+  spin: number;
+  points: [number, number][];
+};
+type Shockwave = Body & { life: number; max: number };
 type Ufo = Body & {
   kind: "large" | "small";
   radius: number;
@@ -65,8 +73,10 @@ export class AsteroidsEngine {
   private ufoVisits = 0;
   private particles: Particle[] = [];
   private jumps: { x: number; y: number; life: number }[] = [];
+  private shards: Shard[] = [];
+  private shockwaves: Shockwave[] = [];
   private keys = new Set<string>();
-  private stars = Array.from({ length: 180 }, () => ({
+  private stars = Array.from({ length: 220 }, () => ({
     x: Math.random(),
     y: Math.random(),
     radius: random(0.4, 1.5),
@@ -95,7 +105,7 @@ export class AsteroidsEngine {
       return;
     if (
       event.repeat &&
-      ["KeyH", "ArrowDown", "KeyS"].includes(event.code)
+      ["KeyH", "ArrowDown", "KeyX"].includes(event.code)
     )
       return;
     this.setControl(event.code, true);
@@ -139,6 +149,8 @@ export class AsteroidsEngine {
       ...(this.ufo ? [this.ufo] : []),
       ...this.particles,
       ...this.jumps,
+      ...this.shards,
+      ...this.shockwaves,
     ]) {
       body.x = (body.x / oldWidth) * this.width;
       body.y = (body.y / oldHeight) * this.height;
@@ -169,7 +181,7 @@ export class AsteroidsEngine {
     if (this.state.status !== "playing" || this.keys.has(key)) return;
     this.keys.add(key);
     if (["KeyH", "ArrowDown"].includes(key)) this.useHyperspace();
-    if (key === "KeyS") this.useShield();
+    if (key === "KeyX") this.useShield();
   }
   useHyperspace() {
     if (this.state.status !== "playing" || this.state.hyperspaceCooldown > 0)
@@ -225,6 +237,8 @@ export class AsteroidsEngine {
     this.ufoVisits = 0;
     this.particles = [];
     this.jumps = [];
+    this.shards = [];
+    this.shockwaves = [];
     this.waveTimer = 0;
     this.shotTimer = 0;
     this.shake = 0;
@@ -476,7 +490,9 @@ export class AsteroidsEngine {
   }
   private hitShip() {
     if (this.isProtected || this.state.status !== "playing") return;
+    this.shatterShip();
     this.burst(this.ship.x, this.ship.y, 45, "#f38254", 240);
+    this.tone(900, 0.05, "square", 0.05, 200);
     this.tone(160, 0.45, "sawtooth", 0.08, 20);
     this.shake = this.reducedMotion ? 0 : 8;
     this.state.lives--;
@@ -485,6 +501,56 @@ export class AsteroidsEngine {
       this.keys.clear();
     } else this.resetShip();
     this.emit();
+  }
+  private shatterShip() {
+    if (this.reducedMotion) return;
+    const ship = this.ship,
+      shipAngle = ship.angle + Math.PI / 2,
+      pieces: [number, number][][] = [
+        [
+          [0, -20],
+          [14, 15],
+        ],
+        [
+          [14, 15],
+          [0, 9],
+          [-14, 15],
+        ],
+        [
+          [-14, 15],
+          [0, -20],
+        ],
+      ];
+    for (const points of pieces) {
+      const cx = points.reduce((sum, p) => sum + p[0], 0) / points.length,
+        cy = points.reduce((sum, p) => sum + p[1], 0) / points.length,
+        cos = Math.cos(shipAngle),
+        sin = Math.sin(shipAngle),
+        wx = cx * cos - cy * sin,
+        wy = cx * sin + cy * cos,
+        outward = Math.hypot(wx, wy) || 1,
+        speed = random(70, 160),
+        life = random(0.5, 0.85);
+      this.shards.push({
+        x: ship.x,
+        y: ship.y,
+        vx: (wx / outward) * speed + ship.vx * 0.3,
+        vy: (wy / outward) * speed + ship.vy * 0.3,
+        angle: shipAngle,
+        spin: random(-9, 9),
+        life,
+        max: life,
+        points: points.map(([px, py]) => [px - cx, py - cy]),
+      });
+    }
+    this.shockwaves.push({
+      x: ship.x,
+      y: ship.y,
+      vx: 0,
+      vy: 0,
+      life: 0.4,
+      max: 0.4,
+    });
   }
   private burst(
     x: number,
@@ -530,6 +596,17 @@ export class AsteroidsEngine {
     this.jumps = this.jumps.filter((jump) => {
       jump.life -= dt;
       return jump.life > 0;
+    });
+    this.shards = this.shards.filter((shard) => {
+      shard.x += shard.vx * dt;
+      shard.y += shard.vy * dt;
+      shard.angle += shard.spin * dt;
+      shard.life -= dt;
+      return shard.life > 0;
+    });
+    this.shockwaves = this.shockwaves.filter((wave) => {
+      wave.life -= dt;
+      return wave.life > 0;
     });
     this.shake = Math.max(0, this.shake - dt * 20);
     if (this.state.status !== "playing") return;
@@ -587,12 +664,13 @@ export class AsteroidsEngine {
     this.shotTimer -= dt;
     this.announcement -= dt;
     if (this.keys.has("Space") && this.shotTimer <= 0) {
+      const bulletSpeed = 700;
       this.bullets.push({
         x: ship.x + Math.cos(ship.angle) * 21,
         y: ship.y + Math.sin(ship.angle) * 21,
-        vx: Math.cos(ship.angle) * 700 + ship.vx * 0.4,
-        vy: Math.sin(ship.angle) * 700 + ship.vy * 0.4,
-        life: 1.1,
+        vx: Math.cos(ship.angle) * bulletSpeed + ship.vx * 0.4,
+        vy: Math.sin(ship.angle) * bulletSpeed + ship.vy * 0.4,
+        life: (this.width / 2) * 0.9 / bulletSpeed,
       });
       this.shotTimer = 0.16;
       this.tone(880, 0.07, "triangle", 0.045, 160);
@@ -690,7 +768,7 @@ export class AsteroidsEngine {
       w = this.width,
       h = this.height;
     ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = "#111a1c";
+    ctx.fillStyle = "#000000";
     ctx.fillRect(0, 0, w, h);
     const glow = ctx.createRadialGradient(
       w * 0.5,
@@ -700,8 +778,8 @@ export class AsteroidsEngine {
       h * 0.47,
       w * 0.65,
     );
-    glow.addColorStop(0, "#26352d55");
-    glow.addColorStop(1, "#10191c00");
+    glow.addColorStop(0, "#1c2a2255");
+    glow.addColorStop(1, "#00000000");
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, w, h);
     for (const star of this.stars) {
@@ -835,6 +913,33 @@ export class AsteroidsEngine {
       ctx.stroke();
       ctx.restore();
     }
+    for (const wave of this.shockwaves) {
+      ctx.save();
+      ctx.globalAlpha = wave.life / wave.max;
+      ctx.strokeStyle = "#f38254";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(wave.x, wave.y, 8 + (1 - wave.life / wave.max) * 90, 0, TAU);
+      ctx.stroke();
+      ctx.restore();
+    }
+    for (const shard of this.shards) {
+      ctx.save();
+      ctx.translate(shard.x, shard.y);
+      ctx.rotate(shard.angle);
+      ctx.globalAlpha = shard.life / shard.max;
+      ctx.strokeStyle = "#f0c9a8";
+      ctx.lineWidth = 2;
+      ctx.shadowColor = "#f38254";
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      shard.points.forEach(([px, py], i) =>
+        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py),
+      );
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
     if (this.state.status === "playing" || this.state.status === "paused") {
       if (this.ufo || (this.ufoTimer < 2 && this.rocks.length)) {
         ctx.fillStyle = "#f58d73";

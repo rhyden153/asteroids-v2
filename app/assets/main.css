@@ -243,7 +243,7 @@ kbd {
 .arena {
   position: relative;
   isolation: isolate;
-  background: #111a1c;
+  background: #000000;
   height: clamp(560px, 72dvh, 960px);
   min-height: 560px;
   overflow: hidden;

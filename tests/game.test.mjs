@@ -299,13 +299,13 @@ test("hyperspace retains the risk of landing on an asteroid", () => {
   assert.equal(game.state.lives, 2);
 });
 
-test("shield blocks rocks for exactly one second, then expires", () => {
+test("shield blocks rocks for exactly two seconds, then expires", () => {
   game.protection = 0;
   const rock = game.makeRock(game.ship.x, game.ship.y, 3);
   rock.vx = rock.vy = 0;
   game.rocks = [rock];
   assert.equal(game.useShield(), true);
-  game.update(0.999);
+  game.update(1.999);
   assert.equal(game.state.lives, 3);
   assert.ok(game.state.shieldRemaining > 0);
   game.update(0.001);
@@ -328,40 +328,40 @@ test("active shield absorbs enemy shots and survives UFO contact without awardin
   assert.equal(game.state.lives, 3);
   assert.equal(game.state.score, 0);
   assert.ok(game.ufo);
-  assert.ok(game.state.shieldRemaining < 1);
+  assert.ok(game.state.shieldRemaining < 2);
 });
 
-test("shield recharges for five seconds after its one-second deployment", () => {
+test("shield recharges for five seconds after its two-second deployment", () => {
   game.rocks = [];
   game.useShield();
   assert.equal(game.useShield(), false);
-  game.update(1);
+  game.update(2);
   assert.equal(game.state.shieldRemaining, 0);
   assert.equal(game.state.shieldCooldown, 5);
   game.update(4.999);
   assert.equal(game.useShield(), false);
   game.update(0.001);
   assert.equal(game.useShield(), true);
-  assert.equal(game.state.shieldRemaining, 1);
+  assert.equal(game.state.shieldRemaining, 2);
 });
 
 test("holding an ability key never automatically repeats activation", () => {
   game.rocks = [];
   game.setControl("KeyH", true);
-  game.setControl("KeyS", true);
-  game.update(6);
+  game.setControl("KeyX", true);
+  game.update(7);
   const position = { x: game.ship.x, y: game.ship.y };
   game.setControl("KeyH", true);
-  game.setControl("KeyS", true);
+  game.setControl("KeyX", true);
   assert.equal(game.state.hyperspaceCooldown, 0);
   assert.equal(game.state.shieldRemaining, 0);
   assert.equal(game.ship.x, position.x);
   game.setControl("KeyH", false);
-  game.setControl("KeyS", false);
+  game.setControl("KeyX", false);
   game.setControl("KeyH", true);
-  game.setControl("KeyS", true);
+  game.setControl("KeyX", true);
   assert.equal(game.state.hyperspaceCooldown, 3);
-  assert.equal(game.state.shieldRemaining, 1);
+  assert.equal(game.state.shieldRemaining, 2);
 });
 
 test("ability timers freeze when paused, and abilities are unavailable outside play", () => {
@@ -369,7 +369,7 @@ test("ability timers freeze when paused, and abilities are unavailable outside p
   game.useHyperspace();
   game.togglePause();
   game.update(5);
-  assert.equal(game.state.shieldRemaining, 1);
+  assert.equal(game.state.shieldRemaining, 2);
   assert.equal(game.state.hyperspaceCooldown, 3);
   for (const status of ["paused", "ready", "over"]) {
     game.state.status = status;
