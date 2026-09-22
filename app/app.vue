@@ -259,7 +259,7 @@ onBeforeUnmount(() => {
             <canvas
               ref="canvas"
               tabindex="0"
-              aria-label="Asteroids playfield. Use left/right arrows or A/D to rotate, Up or W to thrust, Space to fire, Shift to boost, H or Down to hyperspace, S for a one-second shield, and P to pause."
+              aria-label="Asteroids playfield. Use left/right arrows or A/D to rotate, Up or W to thrust, Space to fire, Shift to boost, H or Down to hyperspace, X for a two-second shield, and P to pause."
             />
             <div class="arena-coordinates" aria-hidden="true">
               <span>SECTOR 07 / DEEP SPACE</span
@@ -359,7 +359,7 @@ onBeforeUnmount(() => {
                 class="ability-button shield-ability"
                 :class="{ 'shield-active': state.shieldRemaining > 0 }"
                 aria-label="Deploy shield"
-                title="Shield (S) · 1 second of protection · 5-second recharge"
+                title="Shield (X) · 2 seconds of protection · 5-second recharge"
                 :disabled="state.shieldCooldown > 0"
                 @click="activateAbility('shield')"
               >
@@ -370,9 +370,9 @@ onBeforeUnmount(() => {
                       ? `ACTIVE · ${state.shieldRemaining.toFixed(1)}s`
                       : state.shieldCooldown > 0
                         ? `${state.shieldCooldown.toFixed(1)}s RECHARGE`
-                        : "1 SECOND · READY"
+                        : "2 SECONDS · READY"
                   }}</small></span
-                ><kbd>S</kbd>
+                ><kbd>X</kbd>
                 <i
                   class="ability-charge"
                   :style="{
@@ -519,7 +519,7 @@ onBeforeUnmount(() => {
                 <span>Hyperspace</span
                 ><span class="key-group"><kbd>H</kbd><kbd>↓</kbd></span>
               </div>
-              <div><span>Shield · 1 sec</span><kbd>E</kbd></div>
+              <div><span>Shield · 2 sec</span><kbd>X</kbd></div>
               <div><span>Pause</span><kbd>P</kbd></div>
             </div>
             <div class="pilot-tip">
@@ -646,7 +646,7 @@ onBeforeUnmount(() => {
           <p>
             Press H or ↓ to jump to a random location and stop your momentum.
             Hyperspace recharges in three seconds, but your landing may be
-            dangerous. Press S for a one-second shield against rocks, UFOs, and
+            dangerous. Press X for a two-second shield against rocks, UFOs, and
             enemy shots; it recharges for five seconds after use. Both abilities
             also have on-screen buttons.
           </p>
