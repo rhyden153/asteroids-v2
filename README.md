@@ -1,6 +1,8 @@
 # Asteroids
 
-A modern take on the 1979 arcade classic, built with Nuxt 4, Vue 3, TypeScript, and Canvas 2D. A warm mission-control interface surrounds a vector space game with procedural stars, asteroid fragments, particles, and synthesized sound.
+A modern take on the 1979 arcade classic, built with Nuxt 4, Vue 3, TypeScript, and Canvas 2D. A warm mission-control interface surrounds shaded, cratered asteroids, a metallic fighter with illuminated engines, and detailed enemy saucers, with procedural stars, particles, and synthesized sound.
+
+Use **Graphics → Modern / Vector** below the playfield to switch artwork at any time. Modern is the default; Vector keeps the original outlined sprites. This preference is saved on your device and changes only rendering, preserving movement, collisions, scoring, and difficulty. The target guide uses the same modern artwork as the game. Asteroid textures are cached per rock for efficient animation.
 
 ## Run locally
 
@@ -28,6 +30,8 @@ Open the local URL printed by Nuxt (usually http://localhost:3000).
 Classic starts with three lives. Hardcore starts with one and faster asteroids. Large rocks split into two medium rocks; medium rocks split into two small rocks. Hits award 20, 50, and 100 points respectively. Clear every asteroid to advance to a faster wave. The ship wraps around the screen and receives three seconds of protection when respawning.
 
 Your five best flights and sound preference are saved in localStorage on this device. Switching away from the game automatically pauses play. No backend or account is required.
+
+A crisp, electronic tick-tock accompanies each flight, alternating two square-wave tones. It starts slowly and accelerates as you destroy asteroids and their fragments, then resets with the next wave. The pulse pauses with the game, stops on game over or between waves, and follows the **M** / sound-button mute setting in both graphics modes.
 
 The playfield uses the full page width, with the flight manual below it. UFOs first appear after 12–18 seconds of active play, then return 18–30 seconds after leaving or being destroyed (more often in Hardcore). Large saucers fire randomly and award 200 points. Smaller, faster saucers aim at you and award 1,000 points; they become more common as you progress. Watch for the incoming-signal warning and listen for the saucer's alternating tone. UFO shots can break rocks, but those hits do not score points. Clear the asteroids and any active UFO before the next wave.
 

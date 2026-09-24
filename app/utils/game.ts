@@ -1,3 +1,11 @@
+import {
+  drawModernRock,
+  drawModernShip,
+  drawModernShot,
+  drawModernUfo,
+  type GraphicsMode,
+} from "./sprites";
+
 export type Difficulty = "classic" | "hardcore";
 export type GameState = {
   status: "ready" | "playing" | "paused" | "over";
@@ -94,7 +102,13 @@ export class AsteroidsEngine {
   private emitTimer = 0;
   private difficulty: Difficulty = "classic";
   private muted = false;
+  private graphics: GraphicsMode = "modern";
+  private rockSprites = new WeakMap<Rock, HTMLCanvasElement>();
   private audio?: AudioContext;
+  private heartbeatPhase = 0;
+  private heartbeatLow = false;
+  private waveRockWork = 1;
+  private stopHeartbeatVoice?: () => void;
   private reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)")
     .matches;
   private keydown = (event: KeyboardEvent) => {
@@ -103,10 +117,7 @@ export class AsteroidsEngine {
       (event.target as HTMLElement).closest("button, a, input, select")
     )
       return;
-    if (
-      event.repeat &&
-      ["KeyH", "ArrowDown", "KeyX"].includes(event.code)
-    )
+    if (event.repeat && ["KeyH", "ArrowDown", "KeyX"].includes(event.code))
       return;
     this.setControl(event.code, true);
   };
@@ -172,6 +183,11 @@ export class AsteroidsEngine {
   }
   setMuted(muted: boolean) {
     this.muted = muted;
+    if (muted) this.stopHeartbeat();
+    else if (this.state.status === "playing") this.initAudio();
+  }
+  setGraphics(mode: GraphicsMode) {
+    this.graphics = mode;
   }
   setControl(key: string, active: boolean) {
     if (!active) {
@@ -252,6 +268,7 @@ export class AsteroidsEngine {
     if (this.state.status !== "playing" && this.state.status !== "paused")
       return;
     this.state.status = this.state.status === "playing" ? "paused" : "playing";
+    if (this.state.status === "paused") this.stopHeartbeat();
     this.keys.clear();
     this.emit();
     if (this.state.status === "playing") {
@@ -293,6 +310,69 @@ export class AsteroidsEngine {
       oscillator.disconnect();
       gain.disconnect();
     };
+  }
+  private stopHeartbeat() {
+    this.stopHeartbeatVoice?.();
+    this.stopHeartbeatVoice = undefined;
+  }
+  private get remainingRockWork() {
+    // A large rock takes seven hits to clear its entire family: 7 -> 3 + 3 -> 1 + 1.
+    // Each hit removes exactly one unit, even when it creates more visible rocks.
+    return this.rocks.reduce((total, rock) => total + 2 ** rock.size - 1, 0);
+  }
+  private get heartbeatInterval() {
+    const remaining = Math.min(1, this.remainingRockWork / this.waveRockWork);
+    return 0.16 + 0.74 * remaining;
+  }
+  private playHeartbeat() {
+    if (this.muted || !this.audio || this.audio.state !== "running") return;
+    this.stopHeartbeat();
+    const audio = this.audio,
+      now = audio.currentTime,
+      oscillator = audio.createOscillator(),
+      gain = audio.createGain(),
+      pitch = this.heartbeatLow ? 165 : 220;
+    // Steady square-wave notes give the tick-tock a clear arcade-computer timbre.
+    oscillator.type = "square";
+    oscillator.frequency.setValueAtTime(pitch, now);
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.012, now + 0.002);
+    gain.gain.setValueAtTime(0.012, now + 0.04);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.065);
+    oscillator.connect(gain);
+    gain.connect(audio.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.07);
+    let ended = false;
+    oscillator.onended = () => {
+      ended = true;
+      oscillator.disconnect();
+      gain.disconnect();
+    };
+    this.stopHeartbeatVoice = () => {
+      if (ended) return;
+      // Fade any in-flight pulse quickly when muted, paused, or leaving play.
+      gain.gain.cancelAndHoldAtTime(audio.currentTime);
+      gain.gain.linearRampToValueAtTime(0, audio.currentTime + 0.01);
+      oscillator.stop(audio.currentTime + 0.012);
+    };
+  }
+  private updateHeartbeat(dt: number) {
+    if (
+      this.state.status !== "playing" ||
+      this.muted ||
+      (!this.rocks.length && !this.ufo && !this.enemyBullets.length)
+    ) {
+      this.stopHeartbeat();
+      return;
+    }
+    // Simulation time prevents background-tab catch-up and freezes the beat on pause.
+    this.heartbeatPhase += dt / this.heartbeatInterval;
+    if (this.heartbeatPhase >= 1) {
+      this.heartbeatPhase %= 1;
+      this.playHeartbeat();
+      this.heartbeatLow = !this.heartbeatLow;
+    }
   }
   private resetShip() {
     this.ship = {
@@ -353,6 +433,10 @@ export class AsteroidsEngine {
     }
     this.announcement = 2.2;
     this.waveTimer = 0;
+    this.stopHeartbeat();
+    this.waveRockWork = Math.max(1, this.remainingRockWork);
+    this.heartbeatPhase = 0;
+    this.heartbeatLow = false;
   }
   private wrap(body: Body, margin = 0) {
     if (body.x < -margin) body.x += this.width + margin * 2;
@@ -498,6 +582,7 @@ export class AsteroidsEngine {
     this.state.lives--;
     if (this.state.lives <= 0) {
       this.state.status = "over";
+      this.stopHeartbeat();
       this.keys.clear();
     } else this.resetShip();
     this.emit();
@@ -670,7 +755,7 @@ export class AsteroidsEngine {
         y: ship.y + Math.sin(ship.angle) * 21,
         vx: Math.cos(ship.angle) * bulletSpeed + ship.vx * 0.4,
         vy: Math.sin(ship.angle) * bulletSpeed + ship.vy * 0.4,
-        life: (this.width / 2) * 0.9 / bulletSpeed,
+        life: ((this.width / 2) * 0.9) / bulletSpeed,
       });
       this.shotTimer = 0.16;
       this.tone(880, 0.07, "triangle", 0.045, 160);
@@ -757,6 +842,7 @@ export class AsteroidsEngine {
         this.tone(440, 0.25, "sine", 0.07, 880);
       }
     }
+    this.updateHeartbeat(dt);
     this.emitTimer += dt;
     if (this.emitTimer > 0.1) {
       this.emitTimer = 0;
@@ -815,6 +901,24 @@ export class AsteroidsEngine {
       ctx.save();
       ctx.translate(rock.x, rock.y);
       ctx.rotate(rock.angle);
+      if (this.graphics === "modern") {
+        // Cache the textured surface once per rock, then rotate a bitmap each frame.
+        let sprite = this.rockSprites.get(rock);
+        const extent = Math.ceil(rock.radius * 1.25);
+        if (!sprite) {
+          sprite = document.createElement("canvas");
+          sprite.width = sprite.height = extent * 4;
+          const surface = sprite.getContext("2d")!;
+          surface.scale(2, 2);
+          surface.translate(extent, extent);
+          drawModernRock(surface, rock.radius, rock.points);
+          this.rockSprites.set(rock, sprite);
+        }
+        ctx.globalAlpha = ambient ? 0.65 : 1;
+        ctx.drawImage(sprite, -extent, -extent, extent * 2, extent * 2);
+        ctx.restore();
+        continue;
+      }
       ctx.strokeStyle = ambient ? "#798c735b" : "#adbb96";
       ctx.lineWidth = ambient ? 1.35 : 1.8;
       ctx.fillStyle = ambient ? "#1f2c2625" : "#24302755";
@@ -845,6 +949,10 @@ export class AsteroidsEngine {
     ctx.fillStyle = "#f3e8bb";
     for (const b of this.bullets) {
       if (b.life <= 0) continue;
+      if (this.graphics === "modern") {
+        drawModernShot(ctx, b.x, b.y, b.vx, b.vy);
+        continue;
+      }
       ctx.beginPath();
       ctx.arc(b.x, b.y, 2.3, 0, TAU);
       ctx.fill();
@@ -854,6 +962,10 @@ export class AsteroidsEngine {
     ctx.shadowColor = "#ed6949";
     ctx.shadowBlur = 12;
     for (const bullet of this.enemyBullets) {
+      if (this.graphics === "modern") {
+        drawModernShot(ctx, bullet.x, bullet.y, bullet.vx, bullet.vy, true);
+        continue;
+      }
       ctx.beginPath();
       ctx.arc(bullet.x, bullet.y, 3.5, 0, TAU);
       ctx.fill();
@@ -864,29 +976,38 @@ export class AsteroidsEngine {
         r = ufo.radius;
       ctx.save();
       ctx.translate(ufo.x, ufo.y);
-      ctx.strokeStyle = "#f58d73";
-      ctx.fillStyle = "#302426";
-      ctx.lineWidth = 2;
-      ctx.shadowColor = "#ed6949";
-      ctx.shadowBlur = 12;
-      ctx.beginPath();
-      ctx.moveTo(-r, 0);
-      ctx.lineTo(-r * 0.5, -r * 0.28);
-      ctx.lineTo(-r * 0.25, -r * 0.62);
-      ctx.lineTo(r * 0.25, -r * 0.62);
-      ctx.lineTo(r * 0.5, -r * 0.28);
-      ctx.lineTo(r, 0);
-      ctx.lineTo(r * 0.55, r * 0.32);
-      ctx.lineTo(-r * 0.55, r * 0.32);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(-r, 0);
-      ctx.lineTo(r, 0);
-      ctx.moveTo(-r * 0.5, -r * 0.28);
-      ctx.lineTo(r * 0.5, -r * 0.28);
-      ctx.stroke();
+      if (this.graphics === "modern") {
+        drawModernUfo(
+          ctx,
+          r,
+          ufo.kind === "small",
+          this.reducedMotion ? 0 : this.elapsed,
+        );
+      } else {
+        ctx.strokeStyle = "#f58d73";
+        ctx.fillStyle = "#302426";
+        ctx.lineWidth = 2;
+        ctx.shadowColor = "#ed6949";
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        ctx.moveTo(-r, 0);
+        ctx.lineTo(-r * 0.5, -r * 0.28);
+        ctx.lineTo(-r * 0.25, -r * 0.62);
+        ctx.lineTo(r * 0.25, -r * 0.62);
+        ctx.lineTo(r * 0.5, -r * 0.28);
+        ctx.lineTo(r, 0);
+        ctx.lineTo(r * 0.55, r * 0.32);
+        ctx.lineTo(-r * 0.55, r * 0.32);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-r, 0);
+        ctx.lineTo(r, 0);
+        ctx.moveTo(-r * 0.5, -r * 0.28);
+        ctx.lineTo(r * 0.5, -r * 0.28);
+        ctx.stroke();
+      }
       ctx.restore();
     }
     for (const p of this.particles) {
@@ -936,6 +1057,11 @@ export class AsteroidsEngine {
       shard.points.forEach(([px, py], i) =>
         i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py),
       );
+      if (this.graphics === "modern") {
+        ctx.closePath();
+        ctx.fillStyle = "#91aebd";
+        ctx.fill();
+      }
       ctx.stroke();
       ctx.restore();
     }
@@ -987,20 +1113,33 @@ export class AsteroidsEngine {
         ctx.arc(0, 0, 29, 0, TAU);
         ctx.stroke();
       }
-      ctx.strokeStyle = "#d9e9bb";
-      ctx.fillStyle = "#1a2924";
-      ctx.lineWidth = 2;
-      ctx.shadowColor = "#b8d29a";
-      ctx.shadowBlur = 10;
-      ctx.beginPath();
-      ctx.moveTo(0, -20);
-      ctx.lineTo(14, 15);
-      ctx.lineTo(0, 9);
-      ctx.lineTo(-14, 15);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      ctx.shadowBlur = 0;
+      if (this.graphics === "modern") {
+        const thrust = this.keys.has("ArrowUp") || this.keys.has("KeyW");
+        const boost =
+          (this.keys.has("ShiftLeft") || this.keys.has("ShiftRight")) &&
+          this.state.boost > 1;
+        drawModernShip(
+          ctx,
+          thrust,
+          boost,
+          this.reducedMotion ? 0 : this.elapsed,
+        );
+      } else {
+        ctx.strokeStyle = "#d9e9bb";
+        ctx.fillStyle = "#1a2924";
+        ctx.lineWidth = 2;
+        ctx.shadowColor = "#b8d29a";
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.moveTo(0, -20);
+        ctx.lineTo(14, 15);
+        ctx.lineTo(0, 9);
+        ctx.lineTo(-14, 15);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
       ctx.restore();
       if (this.announcement > 0) {
         ctx.globalAlpha = Math.min(1, this.announcement);
@@ -1026,6 +1165,7 @@ export class AsteroidsEngine {
     this.frame = requestAnimationFrame(this.loop);
   };
   destroy() {
+    this.stopHeartbeat();
     cancelAnimationFrame(this.frame);
     window.removeEventListener("keydown", this.keydown);
     window.removeEventListener("keyup", this.keyup);

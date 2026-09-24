@@ -461,6 +461,7 @@ kbd {
 }
 .game-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   padding: 13px 20px;
@@ -660,7 +661,8 @@ kbd {
   flex-direction: column;
   flex: 1;
 }
-.rock-scores svg {
+.rock-scores svg,
+.rock-scores .sprite-portrait {
   color: #929c83;
   margin-bottom: 10px;
   height: 34px;
@@ -1037,13 +1039,34 @@ kbd {
   align-items: center;
   gap: 9px;
 }
-.ufo-scores svg {
+.ufo-scores svg,
+.ufo-scores .sprite-portrait {
   width: 30px;
   height: 25px;
   color: var(--orange);
 }
 .ufo-scores .small-ufo {
   width: 22px;
+}
+.sprite-portrait {
+  display: block;
+  object-fit: contain;
+}
+.orbit-badge .sprite-portrait {
+  width: 52px;
+  height: 52px;
+}
+@media (max-width: 600px) {
+  .graphics-picker {
+    order: 3;
+    flex-basis: 100%;
+    justify-content: center;
+    border-top: 1px solid var(--line);
+    padding-top: 8px;
+  }
+  .graphics-picker > span {
+    display: inline;
+  }
 }
 .ufo-scores p {
   margin: 0;

@@ -4,10 +4,16 @@ import { readFile } from "node:fs/promises";
 import { stripTypeScriptTypes } from "node:module";
 
 // Use Node's TypeScript transform to exercise the actual engine without a bundler.
-const source = await readFile(
+let source = await readFile(
   new URL("../app/utils/game.ts", import.meta.url),
   "utf8",
 );
+const sprites = await readFile(
+  new URL("../app/utils/sprites.ts", import.meta.url),
+  "utf8",
+);
+const spriteModule = `data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(sprites, { mode: "transform" })).toString("base64")}`;
+source = source.replace('"./sprites"', JSON.stringify(spriteModule));
 const { AsteroidsEngine } = await import(
   `data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(source, { mode: "transform" })).toString("base64")}`
 );
@@ -31,6 +37,109 @@ beforeEach(() => {
   game.start("classic");
 });
 afterEach(() => game.destroy());
+
+test("background pulse alternates at a slow initial cadence", () => {
+  const beats = [];
+  game.playHeartbeat = () => beats.push(game.heartbeatLow);
+  game.updateHeartbeat(0.89);
+  assert.deepEqual(beats, []);
+  game.updateHeartbeat(0.02);
+  game.updateHeartbeat(0.9);
+  game.updateHeartbeat(0.9);
+  assert.deepEqual(beats, [false, true, false]);
+});
+
+test("each asteroid hit accelerates the pulse, including splitting and hostile hits", () => {
+  assert.ok(Math.abs(game.heartbeatInterval - 0.9) < 1e-9);
+  let previous = game.heartbeatInterval;
+  while (game.rocks.length) {
+    const work = game.remainingRockWork;
+    game.breakRock(0, false);
+    assert.equal(game.remainingRockWork, work - 1);
+    assert.ok(game.heartbeatInterval < previous);
+    assert.ok(game.heartbeatInterval >= 0.16);
+    previous = game.heartbeatInterval;
+  }
+  assert.equal(game.heartbeatInterval, 0.16);
+  game.spawnWave();
+  assert.ok(Math.abs(game.heartbeatInterval - 0.9) < 1e-9);
+  assert.equal(game.heartbeatPhase, 0);
+  assert.equal(game.heartbeatLow, false);
+});
+
+test("near-clear fields produce more beats without replaying a backlog", () => {
+  let beats = 0;
+  game.playHeartbeat = () => beats++;
+  for (let i = 0; i < 300; i++) game.updateHeartbeat(0.01);
+  assert.equal(beats, 3);
+  game.rocks = [game.makeRock(50, 50, 1)];
+  game.heartbeatPhase = 0;
+  beats = 0;
+  for (let i = 0; i < 300; i++) game.updateHeartbeat(0.01);
+  assert.ok(beats >= 16);
+  beats = 0;
+  game.updateHeartbeat(30);
+  assert.equal(beats, 1);
+});
+
+test("pause and mute stop the active pulse and freeze its phase", () => {
+  let stops = 0,
+    beats = 0;
+  game.playHeartbeat = () => beats++;
+  game.heartbeatPhase = 0.4;
+  game.stopHeartbeatVoice = () => stops++;
+  game.togglePause();
+  game.update(10);
+  assert.equal(stops, 1);
+  assert.equal(game.heartbeatPhase, 0.4);
+  game.togglePause();
+  game.stopHeartbeatVoice = () => stops++;
+  game.setMuted(true);
+  game.updateHeartbeat(10);
+  assert.equal(stops, 2);
+  assert.equal(game.heartbeatPhase, 0.4);
+  assert.equal(beats, 0);
+  game.setMuted(false);
+  game.updateHeartbeat(0.6);
+  assert.equal(beats, 1);
+});
+
+test("pulse waits through wave breaks but continues for remaining UFO threats", () => {
+  let beats = 0;
+  game.playHeartbeat = () => beats++;
+  game.rocks = [];
+  game.updateHeartbeat(2);
+  assert.equal(beats, 0);
+  game.spawnUfo("large");
+  game.updateHeartbeat(0.17);
+  assert.equal(beats, 1);
+  game.ufo = null;
+  game.enemyBullets = [{ x: 50, y: 50, vx: 1, vy: 1, life: 1 }];
+  game.updateHeartbeat(0.17);
+  assert.equal(beats, 2);
+});
+
+test("game over, restart, and destruction cancel the background voice", () => {
+  let stops = 0;
+  game.stopHeartbeatVoice = () => stops++;
+  game.state.lives = 1;
+  game.protection = 0;
+  game.hitShip();
+  assert.equal(stops, 1);
+  game.playHeartbeat = () => assert.fail("pulse outside play");
+  for (const status of ["over", "ready"]) {
+    game.state.status = status;
+    game.updateHeartbeat(5);
+  }
+  game.stopHeartbeatVoice = () => stops++;
+  game.start("classic");
+  assert.equal(stops, 2);
+  assert.equal(game.heartbeatLow, false);
+  assert.equal(game.heartbeatPhase, 0);
+  game.stopHeartbeatVoice = () => stops++;
+  game.destroy();
+  assert.equal(stops, 3);
+});
 
 test("classic starts with three lives; hardcore restarts cleanly with one", () => {
   assert.equal(game.state.lives, 3);
