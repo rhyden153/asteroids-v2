@@ -96,6 +96,7 @@ export class AsteroidsEngine {
   private elapsed = 0;
   private shotTimer = 0;
   private protection = 0;
+  private deathTimer = 0;
   private waveTimer = 0;
   private announcement = 0;
   private shake = 0;
@@ -194,13 +195,21 @@ export class AsteroidsEngine {
       this.keys.delete(key);
       return;
     }
-    if (this.state.status !== "playing" || this.keys.has(key)) return;
+    if (
+      this.state.status !== "playing" ||
+      this.deathTimer > 0 ||
+      this.keys.has(key)
+    ) return;
     this.keys.add(key);
     if (["KeyH", "ArrowDown"].includes(key)) this.useHyperspace();
     if (key === "KeyX") this.useShield();
   }
   useHyperspace() {
-    if (this.state.status !== "playing" || this.state.hyperspaceCooldown > 0)
+    if (
+      this.state.status !== "playing" ||
+      this.deathTimer > 0 ||
+      this.state.hyperspaceCooldown > 0
+    )
       return false;
     const ship = this.ship;
     this.burst(ship.x, ship.y, 28, "#b9a7fa", 210);
@@ -220,7 +229,11 @@ export class AsteroidsEngine {
     return true;
   }
   useShield() {
-    if (this.state.status !== "playing" || this.state.shieldCooldown > 0)
+    if (
+      this.state.status !== "playing" ||
+      this.deathTimer > 0 ||
+      this.state.shieldCooldown > 0
+    )
       return false;
     this.state.shieldRemaining = ABILITIES.shieldDuration;
     this.state.shieldCooldown =
@@ -230,7 +243,9 @@ export class AsteroidsEngine {
     return true;
   }
   private get isProtected() {
-    return this.protection > 0 || this.state.shieldRemaining > 0;
+    return (
+      this.deathTimer > 0 || this.protection > 0 || this.state.shieldRemaining > 0
+    );
   }
   start(difficulty: Difficulty) {
     this.difficulty = difficulty;
@@ -258,6 +273,7 @@ export class AsteroidsEngine {
     this.waveTimer = 0;
     this.shotTimer = 0;
     this.shake = 0;
+    this.deathTimer = 0;
     this.resetShip();
     this.spawnWave();
     this.initAudio();
@@ -361,6 +377,7 @@ export class AsteroidsEngine {
     if (
       this.state.status !== "playing" ||
       this.muted ||
+      this.deathTimer > 0 ||
       (!this.rocks.length && !this.ufo && !this.enemyBullets.length)
     ) {
       this.stopHeartbeat();
@@ -580,11 +597,9 @@ export class AsteroidsEngine {
     this.tone(160, 0.45, "sawtooth", 0.08, 20);
     this.shake = this.reducedMotion ? 0 : 8;
     this.state.lives--;
-    if (this.state.lives <= 0) {
-      this.state.status = "over";
-      this.stopHeartbeat();
-      this.keys.clear();
-    } else this.resetShip();
+    this.deathTimer = 1;
+    this.stopHeartbeat();
+    this.keys.clear();
     this.emit();
   }
   private shatterShip() {
@@ -695,6 +710,7 @@ export class AsteroidsEngine {
     });
     this.shake = Math.max(0, this.shake - dt * 20);
     if (this.state.status !== "playing") return;
+    const waitingForShip = this.deathTimer > 0;
     // Ability durations use simulation time, so pausing freezes protection and recharge.
     this.state.hyperspaceCooldown = tickTimer(
       this.state.hyperspaceCooldown,
@@ -702,64 +718,66 @@ export class AsteroidsEngine {
     );
     this.state.shieldRemaining = tickTimer(this.state.shieldRemaining, dt);
     this.state.shieldCooldown = tickTimer(this.state.shieldCooldown, dt);
-    const ship = this.ship;
-    const left = this.keys.has("ArrowLeft") || this.keys.has("KeyA"),
-      right = this.keys.has("ArrowRight") || this.keys.has("KeyD");
-    const thrust = this.keys.has("ArrowUp") || this.keys.has("KeyW");
-    const boosting =
-      thrust &&
-      (this.keys.has("ShiftLeft") || this.keys.has("ShiftRight")) &&
-      this.state.boost > 1;
-    ship.angle += ((right ? 1 : 0) - (left ? 1 : 0)) * 4.4 * dt;
-    this.state.boost = Math.max(
-      0,
-      Math.min(100, this.state.boost + (boosting ? -40 : 18) * dt),
-    );
-    if (thrust) {
-      const acceleration = boosting ? 670 : 310;
-      ship.vx += Math.cos(ship.angle) * acceleration * dt;
-      ship.vy += Math.sin(ship.angle) * acceleration * dt;
-      const life = random(0.15, 0.4),
-        spread = random(-0.4, 0.4),
-        angle = ship.angle + Math.PI + spread;
-      this.particles.push({
-        x: ship.x - Math.cos(ship.angle) * 15,
-        y: ship.y - Math.sin(ship.angle) * 15,
-        vx: ship.vx + Math.cos(angle) * 110,
-        vy: ship.vy + Math.sin(angle) * 110,
-        life,
-        max: life,
-        color: boosting ? "#d4eab2" : "#ed774b",
-        radius: random(1.3, 3),
-      });
-    }
-    const friction = Math.pow(0.995, dt * 60);
-    ship.vx *= friction;
-    ship.vy *= friction;
-    const speed = Math.hypot(ship.vx, ship.vy),
-      max = boosting ? 650 : 440;
-    if (speed > max) {
-      ship.vx *= max / speed;
-      ship.vy *= max / speed;
-    }
-    ship.x += ship.vx * dt;
-    ship.y += ship.vy * dt;
-    this.wrap(ship);
-    this.protection -= dt;
-    this.shotTimer -= dt;
+    if (!waitingForShip) {
+      const ship = this.ship;
+      const left = this.keys.has("ArrowLeft") || this.keys.has("KeyA"),
+        right = this.keys.has("ArrowRight") || this.keys.has("KeyD");
+      const thrust = this.keys.has("ArrowUp") || this.keys.has("KeyW");
+      const boosting =
+        thrust &&
+        (this.keys.has("ShiftLeft") || this.keys.has("ShiftRight")) &&
+        this.state.boost > 1;
+      ship.angle += ((right ? 1 : 0) - (left ? 1 : 0)) * 4.4 * dt;
+      this.state.boost = Math.max(
+        0,
+        Math.min(100, this.state.boost + (boosting ? -40 : 18) * dt),
+      );
+      if (thrust) {
+        const acceleration = boosting ? 670 : 310;
+        ship.vx += Math.cos(ship.angle) * acceleration * dt;
+        ship.vy += Math.sin(ship.angle) * acceleration * dt;
+        const life = random(0.15, 0.4),
+          spread = random(-0.4, 0.4),
+          angle = ship.angle + Math.PI + spread;
+        this.particles.push({
+          x: ship.x - Math.cos(ship.angle) * 15,
+          y: ship.y - Math.sin(ship.angle) * 15,
+          vx: ship.vx + Math.cos(angle) * 110,
+          vy: ship.vy + Math.sin(angle) * 110,
+          life,
+          max: life,
+          color: boosting ? "#d4eab2" : "#ed774b",
+          radius: random(1.3, 3),
+        });
+      }
+      const friction = Math.pow(0.995, dt * 60);
+      ship.vx *= friction;
+      ship.vy *= friction;
+      const speed = Math.hypot(ship.vx, ship.vy),
+        max = boosting ? 650 : 440;
+      if (speed > max) {
+        ship.vx *= max / speed;
+        ship.vy *= max / speed;
+      }
+      ship.x += ship.vx * dt;
+      ship.y += ship.vy * dt;
+      this.wrap(ship);
+      this.protection -= dt;
+      this.shotTimer -= dt;
+      if (this.keys.has("Space") && this.shotTimer <= 0) {
+        const bulletSpeed = 700;
+        this.bullets.push({
+          x: ship.x + Math.cos(ship.angle) * 21,
+          y: ship.y + Math.sin(ship.angle) * 21,
+          vx: Math.cos(ship.angle) * bulletSpeed + ship.vx * 0.4,
+          vy: Math.sin(ship.angle) * bulletSpeed + ship.vy * 0.4,
+          life: ((this.width / 2) * 0.9) / bulletSpeed,
+        });
+        this.shotTimer = 0.16;
+        this.tone(880, 0.07, "triangle", 0.045, 160);
+      }
+      }
     this.announcement -= dt;
-    if (this.keys.has("Space") && this.shotTimer <= 0) {
-      const bulletSpeed = 700;
-      this.bullets.push({
-        x: ship.x + Math.cos(ship.angle) * 21,
-        y: ship.y + Math.sin(ship.angle) * 21,
-        vx: Math.cos(ship.angle) * bulletSpeed + ship.vx * 0.4,
-        vy: Math.sin(ship.angle) * bulletSpeed + ship.vy * 0.4,
-        life: ((this.width / 2) * 0.9) / bulletSpeed,
-      });
-      this.shotTimer = 0.16;
-      this.tone(880, 0.07, "triangle", 0.045, 160);
-    }
     this.updateUfo(dt);
     const advanceBullet = (b: Bullet) => {
       b.x += b.vx * dt;
@@ -801,6 +819,7 @@ export class AsteroidsEngine {
         bullet.life = 0;
         this.breakRock(index, false);
       } else if (
+        this.deathTimer === 0 &&
         Math.hypot(this.ship.x - bullet.x, this.ship.y - bullet.y) <
         (this.state.shieldRemaining > 0 ? 32 : 15)
       ) {
@@ -840,6 +859,16 @@ export class AsteroidsEngine {
         this.protection = Math.max(this.protection, 2);
         this.emit();
         this.tone(440, 0.25, "sine", 0.07, 880);
+      }
+    }
+    // Only the ship waits; the field keeps moving throughout the death delay.
+    // A hit during this update starts its full second on the next update.
+    if (waitingForShip) {
+      this.deathTimer = tickTimer(this.deathTimer, dt);
+      if (this.deathTimer === 0) {
+        if (this.state.lives <= 0) this.state.status = "over";
+        else this.resetShip();
+        this.emit();
       }
     }
     this.updateHeartbeat(dt);
@@ -1066,7 +1095,10 @@ export class AsteroidsEngine {
       ctx.restore();
     }
     ctx.globalAlpha = 1;
-    if (this.state.status === "playing" || this.state.status === "paused") {
+    if (
+      this.deathTimer === 0 &&
+      (this.state.status === "playing" || this.state.status === "paused")
+    ) {
       if (this.ufo || (this.ufoTimer < 2 && this.rocks.length)) {
         ctx.fillStyle = "#f58d73";
         ctx.font = '11px "Space Mono", monospace';

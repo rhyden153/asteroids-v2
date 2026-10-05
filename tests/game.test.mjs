@@ -184,18 +184,98 @@ test("spawn protection prevents hits; an unprotected hit costs one life", () => 
   assert.equal(game.state.lives, 2);
   game.update(0);
   assert.equal(game.state.lives, 2);
+  game.update(1);
   assert.ok(game.protection > 0);
 });
 
-test("last life ends the flight and stops further input", () => {
+test("last life waits one second before ending the flight and stops further input", () => {
   game.start("hardcore");
   game.protection = 0;
   game.rocks = [game.makeRock(game.ship.x, game.ship.y, 3)];
   game.update(0);
-  assert.equal(game.state.status, "over");
+  assert.equal(game.state.status, "playing");
   game.setControl("Space", true);
-  game.update(0.03);
+  game.update(0.999);
+  assert.equal(game.state.status, "playing");
   assert.equal(game.bullets.length, 0);
+  game.update(0.001);
+  assert.equal(game.state.status, "over");
+});
+
+test("respawn waits a full second, animates debris, and blocks ship actions", () => {
+  game.protection = 0;
+  game.ship.x = 100;
+  game.hitShip();
+  const ship = { ...game.ship };
+  const shardLife = game.shards[0].life;
+  game.setControl("Space", true);
+  game.setControl("ArrowUp", true);
+  assert.equal(game.useShield(), false);
+  assert.equal(game.useHyperspace(), false);
+  game.hitShip();
+  game.update(0.5);
+  assert.ok(game.shards[0].life < shardLife);
+  game.update(0.499);
+  assert.deepEqual(game.ship, ship);
+  assert.equal(game.state.lives, 2);
+  assert.equal(game.bullets.length, 0);
+  game.update(0.001);
+  assert.equal(game.ship.x, game.width / 2);
+  assert.equal(game.protection, 3);
+});
+
+test("pause freezes the death delay and restarting cancels it", () => {
+  game.protection = 0;
+  game.hitShip();
+  game.update(0.5);
+  game.togglePause();
+  game.update(2);
+  assert.equal(game.deathTimer, 0.5);
+  game.togglePause();
+  game.update(0.5);
+  assert.equal(game.deathTimer, 0);
+  game.protection = 0;
+  game.hitShip();
+  game.start("hardcore");
+  assert.equal(game.deathTimer, 0);
+  assert.equal(game.state.status, "playing");
+  assert.equal(game.state.lives, 1);
+});
+
+test("asteroids, UFOs, and shots keep moving during both death delays", (t) => {
+  t.mock.method(Math, "random", () => 0.5);
+  for (const lives of [2, 1]) {
+    game.start("classic");
+    game.state.lives = lives;
+    game.protection = 0;
+    game.rocks = [game.makeRock(100, 500, 3)];
+    Object.assign(game.rocks[0], { vx: 40, vy: 0 });
+    game.spawnUfo("large");
+    Object.assign(game.ufo, {
+      x: 200, y: 200, vx: 100, vy: 0, shotTimer: 0, turnTimer: 2,
+    });
+    game.bullets = [{ x: 50, y: 50, vx: 100, vy: 0, life: 2 }];
+    const hostileShot = {
+      x: game.ship.x - 20, y: game.ship.y, vx: 40, vy: 0, life: 2,
+    };
+    game.enemyBullets = [hostileShot];
+    game.hitShip();
+    const ship = { ...game.ship };
+    game.update(0.5);
+    assert.equal(game.rocks[0].x, 120);
+    assert.equal(game.ufo.x, 250);
+    assert.equal(game.bullets[0].x, 100);
+    assert.equal(hostileShot.x, ship.x);
+    assert.ok(game.enemyBullets.includes(hostileShot));
+    assert.ok(game.enemyBullets.length > 1, "UFO keeps firing");
+    assert.deepEqual(game.ship, ship);
+    assert.equal(game.state.lives, lives - 1);
+    assert.equal(game.state.status, "playing");
+    game.update(0.5);
+    assert.equal(game.rocks[0].x, 140);
+    assert.equal(game.ufo.x, 300);
+    assert.equal(game.state.status, lives === 1 ? "over" : "playing");
+  }
 });
 
 test("ship wraps across both screen boundaries without losing momentum", () => {
@@ -318,6 +398,7 @@ test("enemy shots cost a life but respect respawn protection", () => {
   game.enemyBullets = [shotAtShip(), shotAtShip()];
   game.update(0);
   assert.equal(game.state.lives, 2);
+  game.update(1);
   assert.ok(game.protection > 0);
 });
 
