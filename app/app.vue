@@ -5,6 +5,7 @@ import {
   type GameState,
   type Difficulty,
 } from "./utils/game";
+import type { GraphicsMode } from "./utils/sprites";
 
 useHead({
   title: "Asteroids — A little space to play.",
@@ -31,6 +32,15 @@ const state = ref<GameState>({
   shieldCooldown: 0,
 });
 const difficulty = ref<Difficulty>("classic");
+const graphics = ref<GraphicsMode>("modern");
+function setGraphics(mode: GraphicsMode) {
+  graphics.value = mode;
+  engine?.setGraphics(mode);
+  try {
+    localStorage.setItem("asteroids-graphics", mode);
+  } catch {}
+  if (isPlaying.value) canvas.value?.focus({ preventScroll: true });
+}
 const muted = ref(false);
 const modal = ref<"scores" | "about" | null>(null);
 const dialog = ref<HTMLElement>();
@@ -146,6 +156,10 @@ onMounted(() => {
         )
         .slice(0, 5);
     muted.value = localStorage.getItem("asteroids-muted") === "true";
+    graphics.value =
+      localStorage.getItem("asteroids-graphics") === "vector"
+        ? "vector"
+        : "modern";
   } catch {}
   if (!canvas.value) return;
   engine = new AsteroidsEngine(canvas.value, (next) => {
@@ -175,6 +189,7 @@ onMounted(() => {
     state.value = next;
   });
   engine.setMuted(muted.value);
+  engine.setGraphics(graphics.value);
   observer = new ResizeObserver(() => engine?.resize());
   observer.observe(canvas.value);
   window.addEventListener("keydown", onKey);
@@ -274,7 +289,8 @@ onBeforeUnmount(() => {
               class="game-overlay launch-overlay"
             >
               <div class="orbit-badge">
-                <AppIcon name="ship" /><span class="orbit-dot"></span>
+                <SpritePortrait v-if="graphics === 'modern'" kind="ship" />
+                <AppIcon v-else name="ship" /><span class="orbit-dot"></span>
               </div>
               <div class="space-eyebrow">ONE SHIP. ENDLESS POSSIBILITIES.</div>
               <h2>HELLO, SPACE.</h2>
@@ -464,6 +480,27 @@ onBeforeUnmount(() => {
                 Hardcore<AppIcon name="bolt" />
               </button>
             </div>
+            <div
+              class="mode-picker graphics-picker"
+              role="group"
+              aria-label="Graphics style"
+            >
+              <span>GRAPHICS</span>
+              <button
+                :class="{ selected: graphics === 'modern' }"
+                :aria-pressed="graphics === 'modern'"
+                @click="setGraphics('modern')"
+              >
+                Modern
+              </button>
+              <button
+                :class="{ selected: graphics === 'vector' }"
+                :aria-pressed="graphics === 'vector'"
+                @click="setGraphics('vector')"
+              >
+                Vector
+              </button>
+            </div>
             <div class="game-tools">
               <button
                 :aria-label="muted ? 'Enable sound' : 'Mute sound'"
@@ -537,28 +574,50 @@ onBeforeUnmount(() => {
             </div>
             <div class="rock-scores">
               <div>
-                <AppIcon class="rock-large" name="asteroid" /><strong
+                <SpritePortrait
+                  v-if="graphics === 'modern'"
+                  class="rock-large"
+                  kind="rock"
+                />
+                <AppIcon v-else class="rock-large" name="asteroid" /><strong
                   >20 <span>PTS</span></strong
                 ><small>LARGE</small>
               </div>
               <div>
-                <AppIcon class="rock-medium" name="asteroid" /><strong
+                <SpritePortrait
+                  v-if="graphics === 'modern'"
+                  class="rock-medium"
+                  kind="rock"
+                />
+                <AppIcon v-else class="rock-medium" name="asteroid" /><strong
                   >50 <span>PTS</span></strong
                 ><small>MEDIUM</small>
               </div>
               <div>
-                <AppIcon class="rock-small" name="asteroid" /><strong
+                <SpritePortrait
+                  v-if="graphics === 'modern'"
+                  class="rock-small"
+                  kind="rock"
+                />
+                <AppIcon v-else class="rock-small" name="asteroid" /><strong
                   >100 <span>PTS</span></strong
                 ><small>SMALL</small>
               </div>
             </div>
             <div class="ufo-scores">
               <div>
-                <AppIcon name="ufo" />
+                <SpritePortrait v-if="graphics === 'modern'" kind="ufo" />
+                <AppIcon v-else name="ufo" />
                 <p>200<small>LARGE UFO</small></p>
               </div>
               <div>
-                <AppIcon name="ufo" class="small-ufo" />
+                <SpritePortrait
+                  v-if="graphics === 'modern'"
+                  kind="ufo"
+                  small
+                  class="small-ufo"
+                />
+                <AppIcon v-else name="ufo" class="small-ufo" />
                 <p>1,000<small>SMALL UFO</small></p>
               </div>
             </div>

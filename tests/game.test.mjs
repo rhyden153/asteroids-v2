@@ -4,10 +4,16 @@ import { readFile } from "node:fs/promises";
 import { stripTypeScriptTypes } from "node:module";
 
 // Use Node's TypeScript transform to exercise the actual engine without a bundler.
-const source = await readFile(
+let source = await readFile(
   new URL("../app/utils/game.ts", import.meta.url),
   "utf8",
 );
+const sprites = await readFile(
+  new URL("../app/utils/sprites.ts", import.meta.url),
+  "utf8",
+);
+const spriteModule = `data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(sprites, { mode: "transform" })).toString("base64")}`;
+source = source.replace('"./sprites"', JSON.stringify(spriteModule));
 const { AsteroidsEngine } = await import(
   `data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(source, { mode: "transform" })).toString("base64")}`
 );
@@ -31,6 +37,109 @@ beforeEach(() => {
   game.start("classic");
 });
 afterEach(() => game.destroy());
+
+test("background pulse alternates at a slow initial cadence", () => {
+  const beats = [];
+  game.playHeartbeat = () => beats.push(game.heartbeatLow);
+  game.updateHeartbeat(0.89);
+  assert.deepEqual(beats, []);
+  game.updateHeartbeat(0.02);
+  game.updateHeartbeat(0.9);
+  game.updateHeartbeat(0.9);
+  assert.deepEqual(beats, [false, true, false]);
+});
+
+test("each asteroid hit accelerates the pulse, including splitting and hostile hits", () => {
+  assert.ok(Math.abs(game.heartbeatInterval - 0.9) < 1e-9);
+  let previous = game.heartbeatInterval;
+  while (game.rocks.length) {
+    const work = game.remainingRockWork;
+    game.breakRock(0, false);
+    assert.equal(game.remainingRockWork, work - 1);
+    assert.ok(game.heartbeatInterval < previous);
+    assert.ok(game.heartbeatInterval >= 0.16);
+    previous = game.heartbeatInterval;
+  }
+  assert.equal(game.heartbeatInterval, 0.16);
+  game.spawnWave();
+  assert.ok(Math.abs(game.heartbeatInterval - 0.9) < 1e-9);
+  assert.equal(game.heartbeatPhase, 0);
+  assert.equal(game.heartbeatLow, false);
+});
+
+test("near-clear fields produce more beats without replaying a backlog", () => {
+  let beats = 0;
+  game.playHeartbeat = () => beats++;
+  for (let i = 0; i < 300; i++) game.updateHeartbeat(0.01);
+  assert.equal(beats, 3);
+  game.rocks = [game.makeRock(50, 50, 1)];
+  game.heartbeatPhase = 0;
+  beats = 0;
+  for (let i = 0; i < 300; i++) game.updateHeartbeat(0.01);
+  assert.ok(beats >= 16);
+  beats = 0;
+  game.updateHeartbeat(30);
+  assert.equal(beats, 1);
+});
+
+test("pause and mute stop the active pulse and freeze its phase", () => {
+  let stops = 0,
+    beats = 0;
+  game.playHeartbeat = () => beats++;
+  game.heartbeatPhase = 0.4;
+  game.stopHeartbeatVoice = () => stops++;
+  game.togglePause();
+  game.update(10);
+  assert.equal(stops, 1);
+  assert.equal(game.heartbeatPhase, 0.4);
+  game.togglePause();
+  game.stopHeartbeatVoice = () => stops++;
+  game.setMuted(true);
+  game.updateHeartbeat(10);
+  assert.equal(stops, 2);
+  assert.equal(game.heartbeatPhase, 0.4);
+  assert.equal(beats, 0);
+  game.setMuted(false);
+  game.updateHeartbeat(0.6);
+  assert.equal(beats, 1);
+});
+
+test("pulse waits through wave breaks but continues for remaining UFO threats", () => {
+  let beats = 0;
+  game.playHeartbeat = () => beats++;
+  game.rocks = [];
+  game.updateHeartbeat(2);
+  assert.equal(beats, 0);
+  game.spawnUfo("large");
+  game.updateHeartbeat(0.17);
+  assert.equal(beats, 1);
+  game.ufo = null;
+  game.enemyBullets = [{ x: 50, y: 50, vx: 1, vy: 1, life: 1 }];
+  game.updateHeartbeat(0.17);
+  assert.equal(beats, 2);
+});
+
+test("game over, restart, and destruction cancel the background voice", () => {
+  let stops = 0;
+  game.stopHeartbeatVoice = () => stops++;
+  game.state.lives = 1;
+  game.protection = 0;
+  game.hitShip();
+  assert.equal(stops, 1);
+  game.playHeartbeat = () => assert.fail("pulse outside play");
+  for (const status of ["over", "ready"]) {
+    game.state.status = status;
+    game.updateHeartbeat(5);
+  }
+  game.stopHeartbeatVoice = () => stops++;
+  game.start("classic");
+  assert.equal(stops, 2);
+  assert.equal(game.heartbeatLow, false);
+  assert.equal(game.heartbeatPhase, 0);
+  game.stopHeartbeatVoice = () => stops++;
+  game.destroy();
+  assert.equal(stops, 3);
+});
 
 test("classic starts with three lives; hardcore restarts cleanly with one", () => {
   assert.equal(game.state.lives, 3);
@@ -75,18 +184,98 @@ test("spawn protection prevents hits; an unprotected hit costs one life", () => 
   assert.equal(game.state.lives, 2);
   game.update(0);
   assert.equal(game.state.lives, 2);
+  game.update(1);
   assert.ok(game.protection > 0);
 });
 
-test("last life ends the flight and stops further input", () => {
+test("last life waits one second before ending the flight and stops further input", () => {
   game.start("hardcore");
   game.protection = 0;
   game.rocks = [game.makeRock(game.ship.x, game.ship.y, 3)];
   game.update(0);
-  assert.equal(game.state.status, "over");
+  assert.equal(game.state.status, "playing");
   game.setControl("Space", true);
-  game.update(0.03);
+  game.update(0.999);
+  assert.equal(game.state.status, "playing");
   assert.equal(game.bullets.length, 0);
+  game.update(0.001);
+  assert.equal(game.state.status, "over");
+});
+
+test("respawn waits a full second, animates debris, and blocks ship actions", () => {
+  game.protection = 0;
+  game.ship.x = 100;
+  game.hitShip();
+  const ship = { ...game.ship };
+  const shardLife = game.shards[0].life;
+  game.setControl("Space", true);
+  game.setControl("ArrowUp", true);
+  assert.equal(game.useShield(), false);
+  assert.equal(game.useHyperspace(), false);
+  game.hitShip();
+  game.update(0.5);
+  assert.ok(game.shards[0].life < shardLife);
+  game.update(0.499);
+  assert.deepEqual(game.ship, ship);
+  assert.equal(game.state.lives, 2);
+  assert.equal(game.bullets.length, 0);
+  game.update(0.001);
+  assert.equal(game.ship.x, game.width / 2);
+  assert.equal(game.protection, 3);
+});
+
+test("pause freezes the death delay and restarting cancels it", () => {
+  game.protection = 0;
+  game.hitShip();
+  game.update(0.5);
+  game.togglePause();
+  game.update(2);
+  assert.equal(game.deathTimer, 0.5);
+  game.togglePause();
+  game.update(0.5);
+  assert.equal(game.deathTimer, 0);
+  game.protection = 0;
+  game.hitShip();
+  game.start("hardcore");
+  assert.equal(game.deathTimer, 0);
+  assert.equal(game.state.status, "playing");
+  assert.equal(game.state.lives, 1);
+});
+
+test("asteroids, UFOs, and shots keep moving during both death delays", (t) => {
+  t.mock.method(Math, "random", () => 0.5);
+  for (const lives of [2, 1]) {
+    game.start("classic");
+    game.state.lives = lives;
+    game.protection = 0;
+    game.rocks = [game.makeRock(100, 500, 3)];
+    Object.assign(game.rocks[0], { vx: 40, vy: 0 });
+    game.spawnUfo("large");
+    Object.assign(game.ufo, {
+      x: 200, y: 200, vx: 100, vy: 0, shotTimer: 0, turnTimer: 2,
+    });
+    game.bullets = [{ x: 50, y: 50, vx: 100, vy: 0, life: 2 }];
+    const hostileShot = {
+      x: game.ship.x - 20, y: game.ship.y, vx: 40, vy: 0, life: 2,
+    };
+    game.enemyBullets = [hostileShot];
+    game.hitShip();
+    const ship = { ...game.ship };
+    game.update(0.5);
+    assert.equal(game.rocks[0].x, 120);
+    assert.equal(game.ufo.x, 250);
+    assert.equal(game.bullets[0].x, 100);
+    assert.equal(hostileShot.x, ship.x);
+    assert.ok(game.enemyBullets.includes(hostileShot));
+    assert.ok(game.enemyBullets.length > 1, "UFO keeps firing");
+    assert.deepEqual(game.ship, ship);
+    assert.equal(game.state.lives, lives - 1);
+    assert.equal(game.state.status, "playing");
+    game.update(0.5);
+    assert.equal(game.rocks[0].x, 140);
+    assert.equal(game.ufo.x, 300);
+    assert.equal(game.state.status, lives === 1 ? "over" : "playing");
+  }
 });
 
 test("ship wraps across both screen boundaries without losing momentum", () => {
@@ -209,6 +398,7 @@ test("enemy shots cost a life but respect respawn protection", () => {
   game.enemyBullets = [shotAtShip(), shotAtShip()];
   game.update(0);
   assert.equal(game.state.lives, 2);
+  game.update(1);
   assert.ok(game.protection > 0);
 });
 
