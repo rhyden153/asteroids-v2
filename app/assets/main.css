@@ -68,7 +68,7 @@ kbd {
 }
 .site-shell {
   max-width: 1920px;
-  padding: 0 40px;
+  padding: 0 120px;
   margin: auto;
 }
 .site-header {
@@ -178,9 +178,12 @@ kbd {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 340px;
   gap: 25px;
-  align-items: start;
+  align-items: stretch;
 }
 .game-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   border: 1px solid #d7d8d0;
   border-radius: 10px;
   overflow: hidden;
@@ -244,8 +247,8 @@ kbd {
   position: relative;
   isolation: isolate;
   background: #000000;
-  height: clamp(560px, 72dvh, 960px);
-  min-height: 560px;
+  flex: 1 1 auto;
+  min-height: 420px;
   overflow: hidden;
   color: #f3f3e8;
 }
@@ -532,6 +535,7 @@ kbd {
   display: grid;
   grid-template-columns: 1fr;
   gap: 16px;
+  align-self: start;
 }
 .manual-card,
 .score-card {
@@ -1013,6 +1017,63 @@ kbd {
   padding-top: 15px;
   font-size: 11px !important;
 }
+.collection-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 28px;
+  margin-top: 34px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f1f1e9;
+  color: inherit;
+  text-decoration: none;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.collection-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px #00000012;
+}
+.collection-card img {
+  display: block;
+  width: auto;
+  height: 190px;
+  max-width: 100%;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+}
+.collection-copy .eyebrow {
+  color: var(--muted);
+}
+.collection-copy h2 {
+  font-size: 28px;
+  font-weight: 550;
+  letter-spacing: -1px;
+  line-height: 1.15;
+  margin: 12px 0 8px;
+}
+.collection-copy p {
+  font-size: 13px;
+  color: #7c8275;
+  margin: 0 0 18px;
+}
+.collection-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 1px;
+  font-weight: 700;
+  color: var(--orange);
+}
+.collection-cta > span {
+  font-size: 18px;
+  font-weight: 400;
+}
 .sr-only {
   position: absolute;
   width: 1px;
@@ -1063,7 +1124,7 @@ kbd {
 }
 @media (min-width: 1440px) {
   .site-shell {
-    padding: 0 40px;
+    padding: 0 160px;
   }
   .page-intro {
     padding-top: 28px;
@@ -1072,9 +1133,6 @@ kbd {
   .game-layout {
     grid-template-columns: minmax(0, 1fr) 360px;
     gap: 28px;
-  }
-  .arena {
-    min-height: 485px;
   }
   .manual-card {
     padding: 25px;
@@ -1097,9 +1155,6 @@ kbd {
     padding-top: 32px;
     padding-bottom: 28px;
   }
-  .arena {
-    min-height: 550px;
-  }
   .game-overlay h2 {
     font-size: 90px;
   }
@@ -1118,7 +1173,7 @@ kbd {
 }
 @media (max-width: 1100px) {
   .site-shell {
-    padding: 0 32px;
+    padding: 0 72px;
   }
   .game-layout {
     grid-template-columns: minmax(0, 1fr);
@@ -1170,7 +1225,16 @@ kbd {
 }
 @media (max-width: 800px) {
   .site-shell {
-    padding: 0 24px;
+    padding: 0 40px;
+  }
+  .collection-card {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+    padding: 16px;
+  }
+  .collection-card img {
+    width: 100%;
+    height: auto;
   }
   .site-header {
     height: 83px;
@@ -1247,7 +1311,7 @@ kbd {
 }
 @media (max-width: 480px) {
   .site-shell {
-    padding: 0 16px;
+    padding: 0 24px;
   }
   .site-header {
     height: 76px;

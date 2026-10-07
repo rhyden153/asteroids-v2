@@ -569,6 +569,15 @@ onBeforeUnmount(() => {
           </div>
         </aside>
       </div>
+      <a class="collection-card" href="https://neogames.io" aria-labelledby="collection-title collection-cta">
+        <img src="/neo-games-social.png" alt="Neo Games arcade collection" width="1732" height="908" loading="lazy" />
+        <div class="collection-copy">
+          <span class="eyebrow">THE ARCADE CONTINUES</span>
+          <h2 id="collection-title">More classics. More high scores.</h2>
+          <p>Find your next favorite in the Neo Games collection.</p>
+          <span id="collection-cta" class="collection-cta">Explore more games <ArcadeIcon name="arrow" :size="18" /></span>
+        </div>
+      </a>
       <footer class="site-footer">
         <span>A LOVE LETTER TO THE ARCADE.</span
         ><span
