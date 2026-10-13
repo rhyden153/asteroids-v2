@@ -2,7 +2,7 @@
 import {
   ABILITIES,
   AsteroidsEngine,
-  type GameState,
+  createGameState,
   type Difficulty,
 } from "./utils/game";
 import type { GraphicsMode } from "./utils/sprites";
@@ -21,16 +21,7 @@ useHead({
 });
 const canvas = ref<HTMLCanvasElement>();
 const arena = ref<HTMLElement>();
-const state = ref<GameState>({
-  status: "ready",
-  score: 0,
-  lives: 3,
-  wave: 1,
-  boost: 100,
-  hyperspaceCooldown: 0,
-  shieldRemaining: 0,
-  shieldCooldown: 0,
-});
+const state = shallowRef(createGameState());
 const difficulty = ref<Difficulty>("classic");
 const graphics = ref<GraphicsMode>("modern");
 function setGraphics(mode: GraphicsMode) {
@@ -208,7 +199,7 @@ onBeforeUnmount(() => {
     <header class="site-header">
       <a class="wordmark" href="/" aria-label="Asteroids home"
         ><span class="brand-symbol"><AppIcon name="asteroid" /></span>
-        ASTEROIDS<span class="wordmark-dot">®</span></a
+        NEO<span style="color: var(--orange)">/</span>ASTEROIDS<span class="wordmark-dot">®</span></a
       >
       <span class="header-caption">THE CLASSIC. BACK IN ORBIT.</span>
       <nav aria-label="Main navigation">

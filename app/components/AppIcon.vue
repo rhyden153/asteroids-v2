@@ -1,6 +1,6 @@
-<script setup lang="ts">
-defineProps<{ name: string }>();
-const paths: Record<string, string> = {
+<script lang="ts">
+// Shared by every icon instance instead of rebuilding the table in setup().
+const paths = {
   shield: "M12 2 21 6V12C21 17 17 20 12 22C7 20 3 17 3 12V6Z M8 12 11 15 16 9",
   hyperspace: "M4 6H10 M2 12H7 M4 18H10 M13 3 21 12 13 21 M9 6 15 12 9 18",
   ufo: "M2 13 7 9 9 5H15L17 9 22 13 17 17H7Z M2 13H22 M7 9H17",
@@ -21,7 +21,10 @@ const paths: Record<string, string> = {
     "M12 2V6 M12 18V22 M2 12H6 M18 12H22 M19 12A7 7 0 1 1 5 12A7 7 0 1 1 19 12 M12 10V14 M10 12H14",
   spark: "M12 2 14 9 21 12 14 14 12 22 10 14 3 12 10 9Z",
   restart: "M3 10A9 9 0 1 1 5 19 M3 3V10H10",
-};
+} as const;
+</script>
+<script setup lang="ts">
+defineProps<{ name: keyof typeof paths }>();
 </script>
 <template>
   <svg

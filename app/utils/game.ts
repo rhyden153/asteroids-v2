@@ -17,6 +17,20 @@ export type GameState = {
   shieldRemaining: number;
   shieldCooldown: number;
 };
+export const createGameState = (difficulty?: Difficulty): GameState => ({
+  status: difficulty ? "playing" : "ready",
+  score: 0,
+  lives: difficulty === "hardcore" ? 1 : 3,
+  wave: 1,
+  boost: 100,
+  hyperspaceCooldown: 0,
+  shieldRemaining: 0,
+  shieldCooldown: 0,
+});
+const STATE_KEYS = [
+  "status", "score", "lives", "wave", "boost", "hyperspaceCooldown",
+  "shieldRemaining", "shieldCooldown",
+] as const;
 export const ABILITIES = {
   hyperspaceCooldown: 3,
   shieldDuration: 2,
@@ -44,7 +58,7 @@ type Shard = Body & {
   spin: number;
   points: [number, number][];
 };
-type Shockwave = Body & { life: number; max: number };
+type Shockwave = { x: number; y: number; life: number; max: number };
 type Ufo = Body & {
   kind: "large" | "small";
   radius: number;
@@ -54,22 +68,41 @@ type Ufo = Body & {
   soundHigh: boolean;
 };
 const TAU = Math.PI * 2;
+const ROCK_RADII = [0, 15, 30, 56] as const;
+const ROCK_SCORES = [0, 100, 50, 20] as const;
 const random = (min: number, max: number) => min + Math.random() * (max - min);
 const tickTimer = (remaining: number, dt: number) =>
   remaining - dt > 1e-9 ? remaining - dt : 0;
+const advanceBody = (body: Body, dt: number) => {
+  body.x += body.vx * dt;
+  body.y += body.vy * dt;
+};
+const advanceShard = (shard: Shard, dt: number) => {
+  advanceBody(shard, dt);
+  shard.angle += shard.spin * dt;
+};
+// Keep survivor order and array identity without allocating a filtered array.
+function updateTimed<T extends { life: number }>(
+  items: T[], dt: number, advance?: (item: T, dt: number) => void,
+) {
+  let live = 0;
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]!;
+    advance?.(item, dt);
+    item.life -= dt;
+    if (item.life > 0) items[live++] = item;
+  }
+  items.length = live;
+}
+const withinRadius = (a: { x: number; y: number }, b: { x: number; y: number }, radius: number) => {
+  const dx = a.x - b.x, dy = a.y - b.y;
+  return dx * dx + dy * dy < radius * radius;
+};
 
 export class AsteroidsEngine {
   private ctx: CanvasRenderingContext2D;
-  private state: GameState = {
-    status: "ready",
-    score: 0,
-    lives: 3,
-    wave: 1,
-    boost: 100,
-    hyperspaceCooldown: 0,
-    shieldRemaining: 0,
-    shieldCooldown: 0,
-  };
+  private state = createGameState();
+  private emittedState?: GameState;
   private width = 1200;
   private height = 720;
   private ship = { x: 600, y: 360, vx: 0, vy: 0, angle: -Math.PI / 2 };
@@ -105,6 +138,9 @@ export class AsteroidsEngine {
   private muted = false;
   private graphics: GraphicsMode = "modern";
   private rockSprites = new WeakMap<Rock, HTMLCanvasElement>();
+  private backgroundGlow?: CanvasGradient;
+  private needsRedraw = true;
+  private destroyed = false;
   private audio?: AudioContext;
   private heartbeatPhase = 0;
   private heartbeatLow = false;
@@ -151,25 +187,27 @@ export class AsteroidsEngine {
     if (!rect.width || !rect.height) return;
     const oldHeight = this.height;
     const oldWidth = this.width;
-    this.width = Math.max(600, Math.min(1800, rect.width * 1.25));
-    this.height = (this.width * rect.height) / rect.width;
-    for (const body of [
-      this.ship,
-      ...this.rocks,
-      ...this.bullets,
-      ...this.enemyBullets,
-      ...(this.ufo ? [this.ufo] : []),
-      ...this.particles,
-      ...this.jumps,
-      ...this.shards,
-      ...this.shockwaves,
-    ]) {
-      body.x = (body.x / oldWidth) * this.width;
-      body.y = (body.y / oldHeight) * this.height;
-    }
+    const width = Math.max(600, Math.min(1800, rect.width * 1.25));
+    const height = (width * rect.height) / rect.width;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    this.canvas.width = Math.round(rect.width * dpr);
-    this.canvas.height = Math.round(rect.height * dpr);
+    const pixelWidth = Math.round(rect.width * dpr);
+    const pixelHeight = Math.round(rect.height * dpr);
+    if (width === oldWidth && height === oldHeight &&
+      this.canvas.width === pixelWidth && this.canvas.height === pixelHeight) return;
+    this.width = width;
+    this.height = height;
+    const scalePosition = (body: { x: number; y: number }) => {
+      body.x = (body.x / oldWidth) * width;
+      body.y = (body.y / oldHeight) * height;
+    };
+    scalePosition(this.ship);
+    if (this.ufo) scalePosition(this.ufo);
+    for (const bodies of [this.rocks, this.bullets, this.enemyBullets,
+      this.particles, this.jumps, this.shards, this.shockwaves]) {
+      for (const body of bodies) scalePosition(body);
+    }
+    this.canvas.width = pixelWidth;
+    this.canvas.height = pixelHeight;
     this.ctx.setTransform(
       this.canvas.width / this.width,
       0,
@@ -178,9 +216,23 @@ export class AsteroidsEngine {
       0,
       0,
     );
+    this.backgroundGlow = undefined;
+    this.needsRedraw = true;
   }
   private emit() {
-    this.onState({ ...this.state });
+    if (this.emittedState) {
+      let changed = false;
+      for (const key of STATE_KEYS) {
+        if (this.state[key] !== this.emittedState[key]) {
+          changed = true;
+          break;
+        }
+      }
+      if (!changed) return;
+    }
+    const snapshot = { ...this.state };
+    this.emittedState = snapshot;
+    this.onState(snapshot);
   }
   setMuted(muted: boolean) {
     this.muted = muted;
@@ -188,7 +240,10 @@ export class AsteroidsEngine {
     else if (this.state.status === "playing") this.initAudio();
   }
   setGraphics(mode: GraphicsMode) {
+    if (this.graphics === mode) return;
     this.graphics = mode;
+    if (mode === "vector") this.rockSprites = new WeakMap();
+    this.needsRedraw = true;
   }
   setControl(key: string, active: boolean) {
     if (!active) {
@@ -249,27 +304,21 @@ export class AsteroidsEngine {
   }
   start(difficulty: Difficulty) {
     this.difficulty = difficulty;
-    this.state = {
-      status: "playing",
-      score: 0,
-      wave: 1,
-      lives: difficulty === "hardcore" ? 1 : 3,
-      boost: 100,
-      hyperspaceCooldown: 0,
-      shieldRemaining: 0,
-      shieldCooldown: 0,
-    };
+    this.state = createGameState(difficulty);
     this.keys.clear();
-    this.rocks = [];
-    this.bullets = [];
-    this.enemyBullets = [];
+    this.rocks.length = 0;
+    this.bullets.length = 0;
+    this.enemyBullets.length = 0;
+    this.rockSprites = new WeakMap();
     this.ufo = null;
     this.ufoTimer = random(12, 18);
     this.ufoVisits = 0;
-    this.particles = [];
-    this.jumps = [];
-    this.shards = [];
-    this.shockwaves = [];
+    this.particles.length = 0;
+    this.jumps.length = 0;
+    this.shards.length = 0;
+    this.shockwaves.length = 0;
+    this.emitTimer = 0;
+    this.needsRedraw = true;
     this.waveTimer = 0;
     this.shotTimer = 0;
     this.shake = 0;
@@ -284,6 +333,7 @@ export class AsteroidsEngine {
     if (this.state.status !== "playing" && this.state.status !== "paused")
       return;
     this.state.status = this.state.status === "playing" ? "paused" : "playing";
+    this.needsRedraw = true;
     if (this.state.status === "paused") this.stopHeartbeat();
     this.keys.clear();
     this.emit();
@@ -334,7 +384,9 @@ export class AsteroidsEngine {
   private get remainingRockWork() {
     // A large rock takes seven hits to clear its entire family: 7 -> 3 + 3 -> 1 + 1.
     // Each hit removes exactly one unit, even when it creates more visible rocks.
-    return this.rocks.reduce((total, rock) => total + 2 ** rock.size - 1, 0);
+    let total = 0;
+    for (const rock of this.rocks) total += 2 ** rock.size - 1;
+    return total;
   }
   private get heartbeatInterval() {
     const remaining = Math.min(1, this.remainingRockWork / this.waveRockWork);
@@ -364,14 +416,16 @@ export class AsteroidsEngine {
       ended = true;
       oscillator.disconnect();
       gain.disconnect();
+      if (this.stopHeartbeatVoice === stop) this.stopHeartbeatVoice = undefined;
     };
-    this.stopHeartbeatVoice = () => {
+    const stop = () => {
       if (ended) return;
       // Fade any in-flight pulse quickly when muted, paused, or leaving play.
       gain.gain.cancelAndHoldAtTime(audio.currentTime);
       gain.gain.linearRampToValueAtTime(0, audio.currentTime + 0.01);
       oscillator.stop(audio.currentTime + 0.012);
     };
+    this.stopHeartbeatVoice = stop;
   }
   private updateHeartbeat(dt: number) {
     if (
@@ -414,7 +468,7 @@ export class AsteroidsEngine {
       vx: Math.cos(angle) * speed,
       vy: Math.sin(angle) * speed,
       size,
-      radius: [0, 15, 30, 56][size]!,
+      radius: ROCK_RADII[size]!,
       angle: random(0, TAU),
       spin: random(-0.3, 0.3),
       points: Array.from({ length: 11 }, () => random(0.72, 1.2)),
@@ -572,7 +626,8 @@ export class AsteroidsEngine {
   }
   private breakRock(index: number, awardPoints: boolean) {
     const rock = this.rocks.splice(index, 1)[0]!;
-    if (awardPoints) this.state.score += [0, 100, 50, 20][rock.size]!;
+    this.rockSprites.delete(rock);
+    if (awardPoints) this.state.score += ROCK_SCORES[rock.size]!;
     this.burst(rock.x, rock.y, rock.size * 7, "#c3cf9d", 130);
     if (rock.size > 1) {
       for (let i = 0; i < 2; i++) {
@@ -646,8 +701,6 @@ export class AsteroidsEngine {
     this.shockwaves.push({
       x: ship.x,
       y: ship.y,
-      vx: 0,
-      vy: 0,
       life: 0.4,
       max: 0.4,
     });
@@ -687,27 +740,10 @@ export class AsteroidsEngine {
         }
       return;
     }
-    this.particles = this.particles.filter((p) => {
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.life -= dt;
-      return p.life > 0;
-    });
-    this.jumps = this.jumps.filter((jump) => {
-      jump.life -= dt;
-      return jump.life > 0;
-    });
-    this.shards = this.shards.filter((shard) => {
-      shard.x += shard.vx * dt;
-      shard.y += shard.vy * dt;
-      shard.angle += shard.spin * dt;
-      shard.life -= dt;
-      return shard.life > 0;
-    });
-    this.shockwaves = this.shockwaves.filter((wave) => {
-      wave.life -= dt;
-      return wave.life > 0;
-    });
+    updateTimed(this.particles, dt, advanceBody);
+    updateTimed(this.jumps, dt);
+    updateTimed(this.shards, dt, advanceShard);
+    updateTimed(this.shockwaves, dt);
     this.shake = Math.max(0, this.shake - dt * 20);
     if (this.state.status !== "playing") return;
     const waitingForShip = this.deathTimer > 0;
@@ -776,18 +812,11 @@ export class AsteroidsEngine {
         this.shotTimer = 0.16;
         this.tone(880, 0.07, "triangle", 0.045, 160);
       }
-      }
+    }
     this.announcement -= dt;
     this.updateUfo(dt);
-    const advanceBullet = (b: Bullet) => {
-      b.x += b.vx * dt;
-      b.y += b.vy * dt;
-      b.life -= dt;
-      this.wrap(b);
-      return b.life > 0;
-    };
-    this.bullets = this.bullets.filter(advanceBullet);
-    this.enemyBullets = this.enemyBullets.filter(advanceBullet);
+    this.updateBullets(this.bullets, dt);
+    this.updateBullets(this.enemyBullets, dt);
     for (const rock of this.rocks) {
       rock.x += rock.vx * dt;
       rock.y += rock.vy * dt;
@@ -801,40 +830,29 @@ export class AsteroidsEngine {
         this.removeUfo(true, true);
         continue;
       }
-      const index = this.rocks.findIndex(
-        (rock) =>
-          Math.hypot(rock.x - bullet.x, rock.y - bullet.y) < rock.radius + 3,
-      );
+      const index = this.findHitRock(bullet);
       if (index < 0) continue;
       bullet.life = 0;
       this.breakRock(index, true);
     }
     for (const bullet of this.enemyBullets) {
       if (this.state.status !== "playing") break;
-      const index = this.rocks.findIndex(
-        (rock) =>
-          Math.hypot(rock.x - bullet.x, rock.y - bullet.y) < rock.radius + 3,
-      );
+      const index = this.findHitRock(bullet);
       if (index >= 0) {
         bullet.life = 0;
         this.breakRock(index, false);
       } else if (
         this.deathTimer === 0 &&
-        Math.hypot(this.ship.x - bullet.x, this.ship.y - bullet.y) <
-        (this.state.shieldRemaining > 0 ? 32 : 15)
+        withinRadius(this.ship, bullet, this.state.shieldRemaining > 0 ? 32 : 15)
       ) {
         bullet.life = 0;
         this.hitShip();
       }
     }
-    this.enemyBullets = this.enemyBullets.filter((b) => b.life > 0);
+    updateTimed(this.enemyBullets, 0);
     if (
       !this.isProtected &&
-      this.rocks.some(
-        (rock) =>
-          Math.hypot(rock.x - this.ship.x, rock.y - this.ship.y) <
-          rock.radius * 0.84 + 10,
-      )
+      this.findHitRock(this.ship, 0.84, 10) >= 0
     ) {
       this.hitShip();
     }
@@ -878,6 +896,17 @@ export class AsteroidsEngine {
       this.emit();
     }
   }
+  private updateBullets(bullets: Bullet[], dt: number) {
+    updateTimed(bullets, dt, advanceBody);
+    for (const bullet of bullets) this.wrap(bullet);
+  }
+  private findHitRock(body: { x: number; y: number }, scale = 1, padding = 3) {
+    for (let i = 0; i < this.rocks.length; i++) {
+      const rock = this.rocks[i]!;
+      if (withinRadius(rock, body, rock.radius * scale + padding)) return i;
+    }
+    return -1;
+  }
   private draw() {
     const ctx = this.ctx,
       w = this.width,
@@ -885,16 +914,20 @@ export class AsteroidsEngine {
     ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = "#000000";
     ctx.fillRect(0, 0, w, h);
-    const glow = ctx.createRadialGradient(
-      w * 0.5,
-      h * 0.47,
-      0,
-      w * 0.5,
-      h * 0.47,
-      w * 0.65,
-    );
-    glow.addColorStop(0, "#1c2a2255");
-    glow.addColorStop(1, "#00000000");
+    let glow = this.backgroundGlow;
+    if (!glow) {
+      glow = ctx.createRadialGradient(
+        w * 0.5,
+        h * 0.47,
+        0,
+        w * 0.5,
+        h * 0.47,
+        w * 0.65,
+      );
+      glow.addColorStop(0, "#1c2a2255");
+      glow.addColorStop(1, "#00000000");
+      this.backgroundGlow = glow;
+    }
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, w, h);
     for (const star of this.stars) {
@@ -952,13 +985,14 @@ export class AsteroidsEngine {
       ctx.lineWidth = ambient ? 1.35 : 1.8;
       ctx.fillStyle = ambient ? "#1f2c2625" : "#24302755";
       ctx.beginPath();
-      rock.points.forEach((point, i) => {
+      for (let i = 0; i < rock.points.length; i++) {
+        const point = rock.points[i]!;
         const a = (i / rock.points.length) * TAU,
           x = Math.cos(a) * rock.radius * point,
           y = Math.sin(a) * rock.radius * point;
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
-      });
+      }
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
@@ -1083,9 +1117,11 @@ export class AsteroidsEngine {
       ctx.shadowColor = "#f38254";
       ctx.shadowBlur = 8;
       ctx.beginPath();
-      shard.points.forEach(([px, py], i) =>
-        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py),
-      );
+      for (let i = 0; i < shard.points.length; i++) {
+        const [px, py] = shard.points[i]!;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
       if (this.graphics === "modern") {
         ctx.closePath();
         ctx.fillStyle = "#91aebd";
@@ -1189,14 +1225,26 @@ export class AsteroidsEngine {
     ctx.restore();
   }
   private loop = (now: number) => {
+    if (this.destroyed) return;
     const dt = this.last ? Math.min((now - this.last) / 1000, 0.033) : 0;
     this.last = now;
-    this.elapsed += dt;
-    this.update(dt);
-    this.draw();
+    if (!document.hidden) {
+      const animate = this.state.status !== "paused" &&
+        !(this.reducedMotion && this.state.status === "ready");
+      if (animate) {
+        this.elapsed += dt;
+        this.update(dt);
+      }
+      if (animate || this.needsRedraw) {
+        this.draw();
+        this.needsRedraw = false;
+      }
+    }
     this.frame = requestAnimationFrame(this.loop);
   };
   destroy() {
+    if (this.destroyed) return;
+    this.destroyed = true;
     this.stopHeartbeat();
     cancelAnimationFrame(this.frame);
     window.removeEventListener("keydown", this.keydown);
@@ -1204,5 +1252,13 @@ export class AsteroidsEngine {
     window.removeEventListener("blur", this.blur);
     document.removeEventListener("visibilitychange", this.visibility);
     if (this.audio) void this.audio.close().catch(() => {});
+    this.audio = undefined;
+    this.keys.clear();
+    this.rocks.length = this.bullets.length = this.enemyBullets.length = 0;
+    this.particles.length = this.jumps.length = this.shards.length = this.shockwaves.length = 0;
+    this.ufo = null;
+    this.rockSprites = new WeakMap();
+    this.backgroundGlow = undefined;
+    this.emittedState = undefined;
   }
 }

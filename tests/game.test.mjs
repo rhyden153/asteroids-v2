@@ -580,3 +580,182 @@ test("down-arrow activates hyperspace and a new flight resets both abilities", (
   assert.equal(game.state.shieldCooldown, 0);
   assert.equal(game.jumps.length, 0);
 });
+
+test("effect cleanup reuses arrays and preserves survivor order and motion", () => {
+  game.state.status = "over";
+  const particle = (life) => ({ x: 10, y: 20, vx: 8, vy: -4, life, max: life, radius: 2, color: "white" });
+  const first = particle(1), expired = particle(0.05), last = particle(2);
+  game.particles.push(first, expired, last);
+  game.jumps.push({ x: 0, y: 0, life: 0.05 }, { x: 1, y: 1, life: 1 });
+  const shard = { ...particle(1), angle: 1, spin: 2, points: [[0, 0], [1, 1]] };
+  game.shards.push(shard);
+  game.shockwaves.push({ x: 0, y: 0, life: 0.05, max: 0.05 });
+  const arrays = [game.particles, game.jumps, game.shards, game.shockwaves];
+  game.update(0.1);
+  assert.equal(game.particles, arrays[0]);
+  assert.equal(game.jumps, arrays[1]);
+  assert.equal(game.shards, arrays[2]);
+  assert.equal(game.shockwaves, arrays[3]);
+  assert.deepEqual(game.particles, [first, last]);
+  assert.equal(first.x, 10.8);
+  assert.equal(first.y, 19.6);
+  assert.equal(game.jumps.length, 1);
+  assert.equal(shard.angle, 1.2);
+  assert.equal(game.shockwaves.length, 0);
+});
+
+test("projectiles compact in place, wrap, and remove consumed hostile shots", () => {
+  game.rocks = [];
+  const shot = (x, life) => ({ x, y: 10, vx: 10, vy: 0, life });
+  const first = shot(game.width, 1), last = shot(30, 2);
+  game.bullets.push(first, shot(20, 0.05), last);
+  game.enemyBullets.push({ ...shot(game.ship.x, 1), y: game.ship.y, vx: 0 });
+  const bullets = game.bullets, enemyBullets = game.enemyBullets;
+  game.update(0.1);
+  assert.equal(game.bullets, bullets);
+  assert.equal(game.enemyBullets, enemyBullets);
+  assert.deepEqual(game.bullets, [first, last]);
+  assert.equal(first.x, 1);
+  assert.equal(last.x, 31);
+  assert.equal(enemyBullets.length, 0);
+});
+
+test("unchanged HUD state emits nothing and changed snapshots stay independent", () => {
+  const states = [];
+  game.onState = state => states.push(state);
+  game.update(0.11);
+  game.update(0.11);
+  assert.equal(states.length, 0);
+  game.useShield();
+  assert.equal(states.length, 1);
+  assert.equal(states[0].shieldRemaining, 2);
+  game.update(0.11);
+  assert.equal(states.length, 2);
+  assert.equal(states[0].shieldRemaining, 2);
+  assert.equal(states[1].shieldRemaining, 1.89);
+});
+
+test("paused frames skip drawing but resize and graphics changes refresh once", () => {
+  let draws = 0;
+  game.draw = () => draws++;
+  game.togglePause();
+  game.loop(100);
+  const elapsed = game.elapsed;
+  for (let i = 1; i <= 120; i++) game.loop(100 + i * 16);
+  assert.equal(draws, 1);
+  assert.equal(game.elapsed, elapsed);
+  game.setGraphics("vector");
+  game.loop(2100);
+  game.loop(2116);
+  assert.equal(draws, 2);
+  rect = { width: 350, height: 450 };
+  game.resize();
+  game.loop(2132);
+  game.loop(2148);
+  assert.equal(draws, 3);
+  game.togglePause();
+  game.loop(2164);
+  assert.equal(draws, 4);
+  assert.ok(game.elapsed > elapsed);
+});
+
+test("background gradient is reused and unchanged resizing keeps the canvas intact", () => {
+  let gradients = 0, transforms = 0;
+  game.ctx = new Proxy({}, {
+    get(_target, key) {
+      if (key === "createRadialGradient") return () => {
+        gradients++;
+        return { addColorStop() {} };
+      };
+      if (key === "setTransform") return () => transforms++;
+      return () => {};
+    },
+  });
+  game.setGraphics("vector");
+  game.draw();
+  game.draw();
+  assert.equal(gradients, 1);
+  game.resize();
+  game.draw();
+  assert.equal(gradients, 1);
+  assert.equal(transforms, 0);
+  rect = { width: 350, height: 450 };
+  game.resize();
+  game.draw();
+  assert.equal(gradients, 2);
+  assert.equal(transforms, 1);
+});
+
+test("hidden and reduced-motion idle frames skip rendering", () => {
+  let draws = 0;
+  game.draw = () => draws++;
+  game.reducedMotion = true;
+  game.state.status = "ready";
+  game.loop(100);
+  game.loop(116);
+  assert.equal(draws, 1);
+  document.hidden = true;
+  game.needsRedraw = true;
+  game.loop(132);
+  assert.equal(draws, 1);
+  document.hidden = false;
+  game.loop(148);
+  assert.equal(draws, 2);
+});
+
+test("restart drops texture caches and reuses cleared effect arrays", () => {
+  const cache = game.rockSprites;
+  const particles = game.particles, bullets = game.bullets;
+  game.burst(10, 10, 20, "white", 100);
+  game.setControl("Space", true);
+  game.update(0.01);
+  game.start("hardcore");
+  assert.notEqual(game.rockSprites, cache);
+  assert.equal(game.particles, particles);
+  assert.equal(game.bullets, bullets);
+  assert.equal(particles.length, 0);
+  assert.equal(bullets.length, 0);
+});
+
+test("destroy releases retained resources once and prevents further frames", () => {
+  let closes = 0, draws = 0;
+  game.audio = { close: async () => { closes++; } };
+  game.draw = () => draws++;
+  game.burst(10, 10, 20, "white", 100);
+  game.spawnUfo("large");
+  game.destroy();
+  game.destroy();
+  game.loop(100);
+  assert.equal(closes, 1);
+  assert.equal(draws, 0);
+  assert.equal(game.audio, undefined);
+  assert.equal(game.ufo, null);
+  for (const key of ["rocks", "bullets", "enemyBullets", "particles", "jumps", "shards", "shockwaves"])
+    assert.equal(game[key].length, 0);
+});
+
+test("finished audio pulses release their stopper without clearing a newer voice", () => {
+  const oscillators = [];
+  const parameter = { setValueAtTime() {}, linearRampToValueAtTime() {},
+    exponentialRampToValueAtTime() {}, cancelAndHoldAtTime() {} };
+  game.audio = {
+    state: "running", currentTime: 0, destination: {}, close: async () => {},
+    createOscillator() {
+      const oscillator = { frequency: parameter, connect() {}, disconnect() {},
+        start() {}, stop() {}, onended: null };
+      oscillators.push(oscillator);
+      return oscillator;
+    },
+    createGain: () => ({ gain: parameter, connect() {}, disconnect() {} }),
+  };
+  game.playHeartbeat();
+  oscillators[0].onended();
+  assert.equal(game.stopHeartbeatVoice, undefined);
+  game.playHeartbeat();
+  game.playHeartbeat();
+  const currentStopper = game.stopHeartbeatVoice;
+  oscillators[1].onended();
+  assert.equal(game.stopHeartbeatVoice, currentStopper);
+  oscillators[2].onended();
+  assert.equal(game.stopHeartbeatVoice, undefined);
+});

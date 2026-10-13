@@ -2,15 +2,26 @@
 export type GraphicsMode = "modern" | "vector";
 type Context = CanvasRenderingContext2D;
 const TAU = Math.PI * 2;
+const ENGINE_X = [-6, 6] as const;
+const SHIP_HULL = [[0, -20], [6, -5], [14, 15], [5, 11], [0, 8], [-5, 11], [-14, 15], [-6, -5]] as const;
+const SHIP_LEFT_WING = [[-5, -3], [-11, 11], [-5, 8], [-2, -11]] as const;
+const SHIP_RIGHT_WING = [[5, -3], [11, 11], [5, 8], [2, -11]] as const;
+const SHIP_SPINE = [[0, -19], [4, 7], [0, 10], [-4, 7]] as const;
+const SHIP_GLASS = [[0, -11], [3, -3], [2, 3], [-2, 3], [-3, -3]] as const;
+const UFO_HULL = [[-1, 0], [-0.52, -0.27], [0.52, -0.27], [1, 0], [0.56, 0.32], [-0.56, 0.32]] as const;
 
 function polygon(
   ctx: Context,
-  points: number[][],
+  points: readonly (readonly number[])[],
   fill: string | CanvasGradient,
   stroke?: string,
 ) {
   ctx.beginPath();
-  points.forEach(([x, y], i) => (i ? ctx.lineTo(x!, y!) : ctx.moveTo(x!, y!)));
+  for (let i = 0; i < points.length; i++) {
+    const [x, y] = points[i]!;
+    if (i) ctx.lineTo(x!, y!);
+    else ctx.moveTo(x!, y!);
+  }
   ctx.closePath();
   ctx.fillStyle = fill;
   ctx.fill();
@@ -98,7 +109,7 @@ export function drawModernShip(
     flame.addColorStop(1, "#4197ff00");
     ctx.shadowColor = "#59cfff";
     ctx.shadowBlur = 12;
-    for (const x of [-6, 6]) {
+    for (const x of ENGINE_X) {
       polygon(
         ctx,
         [
@@ -118,73 +129,19 @@ export function drawModernShip(
   hull.addColorStop(0.4, "#b5c8c9");
   hull.addColorStop(0.48, "#6c899b");
   hull.addColorStop(1, "#253d52");
-  polygon(
-    ctx,
-    [
-      [0, -20],
-      [6, -5],
-      [14, 15],
-      [5, 11],
-      [0, 8],
-      [-5, 11],
-      [-14, 15],
-      [-6, -5],
-    ],
-    hull,
-    "#d1e6eb",
-  );
-  polygon(
-    ctx,
-    [
-      [-5, -3],
-      [-11, 11],
-      [-5, 8],
-      [-2, -11],
-    ],
-    "#557481",
-    "#93b4c0",
-  );
-  polygon(
-    ctx,
-    [
-      [5, -3],
-      [11, 11],
-      [5, 8],
-      [2, -11],
-    ],
-    "#314c60",
-    "#7898ab",
-  );
-  polygon(
-    ctx,
-    [
-      [0, -19],
-      [4, 7],
-      [0, 10],
-      [-4, 7],
-    ],
-    "#d4ded4",
-  );
+  polygon(ctx, SHIP_HULL, hull, "#d1e6eb");
+  polygon(ctx, SHIP_LEFT_WING, "#557481", "#93b4c0");
+  polygon(ctx, SHIP_RIGHT_WING, "#314c60", "#7898ab");
+  polygon(ctx, SHIP_SPINE, "#d4ded4");
   const glass = ctx.createLinearGradient(-3, -10, 3, 3);
   glass.addColorStop(0, "#e3ffff");
   glass.addColorStop(0.35, "#5ed8ed");
   glass.addColorStop(1, "#126284");
-  polygon(
-    ctx,
-    [
-      [0, -11],
-      [3, -3],
-      [2, 3],
-      [-2, 3],
-      [-3, -3],
-    ],
-    glass,
-    "#95edff",
-  );
+  polygon(ctx, SHIP_GLASS, glass, "#95edff");
   ctx.fillStyle = "#f58050";
   ctx.fillRect(-10, 7, 2, 4);
   ctx.fillRect(8, 7, 2, 4);
-  for (const x of [-6, 6]) {
+  for (const x of ENGINE_X) {
     ctx.fillStyle = "#1c3045";
     ctx.fillRect(x - 2.4, 9, 4.8, 4);
     ctx.fillStyle = "#b2f6ff";
@@ -229,19 +186,7 @@ export function drawModernUfo(
   metal.addColorStop(0.49, "#ead8ca");
   metal.addColorStop(0.55, "#424257");
   metal.addColorStop(1, "#202a3e");
-  polygon(
-    ctx,
-    [
-      [-1, 0],
-      [-0.52, -0.27],
-      [0.52, -0.27],
-      [1, 0],
-      [0.56, 0.32],
-      [-0.56, 0.32],
-    ],
-    metal,
-    "#bba7a2",
-  );
+  polygon(ctx, UFO_HULL, metal, "#bba7a2");
   ctx.strokeStyle = accent;
   ctx.beginPath();
   ctx.moveTo(-0.87, 0.035);

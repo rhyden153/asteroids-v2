@@ -48,6 +48,7 @@ button {
     transform 0.18s,
     color 0.18s;
 }
+.collection-section { margin-top: 44px; }
 svg {
   width: 20px;
   height: 20px;
@@ -176,7 +177,7 @@ kbd {
 }
 .game-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
+  grid-template-columns: minmax(0, 1fr) 300px;
   gap: 25px;
   align-items: stretch;
 }
@@ -1147,14 +1148,14 @@ kbd {
 }
 @media (min-width: 1440px) {
   .site-shell {
-    padding: 0 160px;
+    padding: 0 100px;
   }
   .page-intro {
     padding-top: 28px;
     padding-bottom: 25px;
   }
   .game-layout {
-    grid-template-columns: minmax(0, 1fr) 360px;
+    grid-template-columns: minmax(0, 1fr) 320px;
     gap: 28px;
   }
   .manual-card {
