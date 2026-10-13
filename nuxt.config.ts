@@ -5,4 +5,3 @@ export default defineNuxtConfig({
   extends: ['github:rhyden153/neogames-ui'],
   compatibilityDate: '2026-10-13'
 });
-npm 
