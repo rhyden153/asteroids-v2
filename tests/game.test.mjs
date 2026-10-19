@@ -535,21 +535,45 @@ test("shield recharges for five seconds after its two-second deployment", () => 
   assert.equal(game.state.shieldRemaining, 2);
 });
 
+test("either Ctrl key activates the shield, ignores repeats, and replaces X", () => {
+  const key = (code, repeat = false, target = { closest: () => null }) => ({
+    code, repeat, target, preventDefault() {},
+  });
+  game.keydown(key("KeyX"));
+  assert.equal(game.state.shieldRemaining, 0);
+  for (const code of ["ControlLeft", "ControlRight"]) {
+    game.start("classic");
+    game.keydown(key(code, false, { closest: () => ({}) }));
+    game.keydown(key(code, false, { isContentEditable: true }));
+    game.keydown(key(code, true));
+    assert.equal(game.state.shieldRemaining, 0);
+    game.keydown(key(code));
+    assert.equal(game.state.shieldRemaining, 2);
+    game.rocks = [];
+    game.update(7);
+    game.keydown(key(code, true));
+    assert.equal(game.state.shieldRemaining, 0);
+    game.keyup(key(code));
+    game.keydown(key(code));
+    assert.equal(game.state.shieldRemaining, 2);
+  }
+});
+
 test("holding an ability key never automatically repeats activation", () => {
   game.rocks = [];
   game.setControl("KeyH", true);
-  game.setControl("KeyX", true);
+  game.setControl("ControlLeft", true);
   game.update(7);
   const position = { x: game.ship.x, y: game.ship.y };
   game.setControl("KeyH", true);
-  game.setControl("KeyX", true);
+  game.setControl("ControlLeft", true);
   assert.equal(game.state.hyperspaceCooldown, 0);
   assert.equal(game.state.shieldRemaining, 0);
   assert.equal(game.ship.x, position.x);
   game.setControl("KeyH", false);
-  game.setControl("KeyX", false);
+  game.setControl("ControlLeft", false);
   game.setControl("KeyH", true);
-  game.setControl("KeyX", true);
+  game.setControl("ControlLeft", true);
   assert.equal(game.state.hyperspaceCooldown, 3);
   assert.equal(game.state.shieldRemaining, 2);
 });

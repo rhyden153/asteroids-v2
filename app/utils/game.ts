@@ -151,11 +151,14 @@ export class AsteroidsEngine {
   private keydown = (event: KeyboardEvent) => {
     if (
       this.state.status !== "playing" ||
-      (event.target as HTMLElement).closest("button, a, input, select")
+      (event.target as HTMLElement).isContentEditable ||
+      (event.target as HTMLElement).closest("button, a, input, select, textarea")
     )
       return;
-    if (event.repeat && ["KeyH", "ArrowDown", "KeyX"].includes(event.code))
+    if (event.repeat && ["KeyH", "ArrowDown", "ControlLeft", "ControlRight"].includes(event.code))
       return;
+    if (event.code === "ControlLeft" || event.code === "ControlRight")
+      event.preventDefault();
     this.setControl(event.code, true);
   };
   private keyup = (event: KeyboardEvent) => this.keys.delete(event.code);
@@ -257,7 +260,7 @@ export class AsteroidsEngine {
     ) return;
     this.keys.add(key);
     if (["KeyH", "ArrowDown"].includes(key)) this.useHyperspace();
-    if (key === "KeyX") this.useShield();
+    if (key === "ControlLeft" || key === "ControlRight") this.useShield();
   }
   useHyperspace() {
     if (

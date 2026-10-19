@@ -21,9 +21,10 @@ Open the local URL printed by Nuxt (usually http://localhost:3000).
 - **Space:** fire; hold for continuous shots.
 - **Shift + thrust:** rechargeable boost.
 - **H / Down:** hyperspace jump to an unpredictable location; stops momentum and recharges in three seconds. Landings can be dangerous.
-- **X:** deploy a shield for exactly two seconds against rocks, UFOs, and hostile shots, followed by five seconds of recharge.
+- **Ctrl (either key):** deploy a shield for exactly two seconds against rocks, UFOs, and hostile shots, followed by five seconds of recharge.
 - **P / Escape:** pause or resume.
 - **M:** mute or unmute.
+- **F:** toggle fullscreen.
 - **Enter:** launch or retry.
 - Touch devices get on-screen steering, thrust, and fire controls. Hyperspace and shield buttons show readiness, active time, and recharge on both desktop and mobile.
 

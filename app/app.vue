@@ -8,7 +8,7 @@ import {
 import type { GraphicsMode } from "./utils/sprites";
 
 useHead({
-  title: "Asteroids — A little space to play.",
+  title: "Asteroids: Classic Arcade Game",
   meta: [
     {
       name: "description",
@@ -51,6 +51,7 @@ const best = computed(() => Math.max(0, ...scores.value.map((s) => s.score)));
 const formatScore = (value: number) => String(value).padStart(6, "0");
 const isPlaying = computed(() => state.value.status === "playing");
 const fullscreen = ref(false);
+let fullscreenPending = false;
 let engine: AsteroidsEngine | undefined;
 let observer: ResizeObserver | undefined;
 function start() {
@@ -85,16 +86,30 @@ function openModal(value: "scores" | "about") {
   modal.value = value;
 }
 async function toggleFullscreen() {
+  const panel = arena.value;
+  if (!panel || fullscreenPending) return;
+  fullscreenPending = true;
   try {
-    if (document.fullscreenElement) await document.exitFullscreen();
-    else await arena.value?.requestFullscreen();
+    if (document.fullscreenElement === panel) {
+      await document.exitFullscreen();
+      fullscreen.value = false;
+    } else if (fullscreen.value) {
+      fullscreen.value = false;
+    } else if (panel.requestFullscreen) {
+      await panel.requestFullscreen();
+      fullscreen.value = document.fullscreenElement === panel;
+    } else {
+      fullscreen.value = true;
+    }
   } catch {
-    fullscreen.value = !fullscreen.value;
+    fullscreen.value = document.fullscreenElement === panel || !fullscreen.value;
+  } finally {
+    fullscreenPending = false;
+    canvas.value?.focus({ preventScroll: true });
   }
-  canvas.value?.focus({ preventScroll: true });
 }
 function onFullscreen() {
-  fullscreen.value = !!document.fullscreenElement;
+  fullscreen.value = document.fullscreenElement === arena.value;
 }
 function onKey(event: KeyboardEvent) {
   const target = event.target as HTMLElement;
@@ -115,7 +130,27 @@ function onKey(event: KeyboardEvent) {
     }
     return;
   }
-  if (target.closest("button, a, select, input")) return;
+  if (event.code === "KeyF") {
+    if (
+      event.repeat ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey ||
+      target.isContentEditable ||
+      target.closest("input, textarea, select")
+    )
+      return;
+    event.preventDefault();
+    void toggleFullscreen();
+    return;
+  }
+  if (event.code === "Escape" && fullscreen.value && !document.fullscreenElement) {
+    event.preventDefault();
+    void toggleFullscreen();
+    return;
+  }
+  if (target.isContentEditable || target.closest("button, a, select, input, textarea")) return;
   if (
     ["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(
       event.code,
@@ -196,36 +231,32 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="site-shell">
-    <header class="site-header">
-      <a class="wordmark" href="/" aria-label="Asteroids home"
-        ><span class="brand-symbol"><AppIcon name="asteroid" /></span>
-        NEO<span style="color: var(--orange)">/</span>ASTEROIDS<span class="wordmark-dot">®</span></a
-      >
-      <span class="header-caption">THE CLASSIC. BACK IN ORBIT.</span>
-      <nav aria-label="Main navigation">
-        <button class="nav-button" @click="openModal('scores')">
-          <AppIcon name="trophy" /><span>High scores</span></button
-        ><button
-          class="about-button"
-          aria-label="About Asteroids"
-          @click="openModal('about')"
-        >
-          <AppIcon name="info" />
-        </button>
-      </nav>
-    </header>
     <main>
-      <section class="page-intro">
-        <div>
-          <div class="eyebrow">
-            <span class="tiny-cross">+</span> EST. 1979 · REIMAGINED FOR NOW
+      <header class="site-header">
+        <section class="page-intro">
+          <div>
+            <div class="eyebrow">
+              <span class="tiny-cross">+</span> EST. 1979 · REIMAGINED FOR NOW
+            </div>
+            <h1>NEO<span style="color: var(--orange)">/</span>ASTEROIDS</h1>
           </div>
-          <h1>A little space to play<span>.</span></h1>
-        </div>
-        <p>
-          No downloads. No quarters.<br />Just you and a whole lot of asteroids.
-        </p>
-      </section>
+          <p>
+            No downloads. No quarters. Just you and a whole lot of asteroids.
+          </p>
+          <nav aria-label="Main navigation">
+            <button class="nav-button" @click="openModal('scores')">
+              <AppIcon name="trophy" /><span>High scores</span>
+            </button>
+            <button
+              class="about-button"
+              aria-label="About Asteroids"
+              @click="openModal('about')"
+            >
+              <AppIcon name="info" />
+            </button>
+          </nav>
+        </section>
+      </header>
       <div class="game-layout">
         <section class="game-panel" aria-label="Asteroids arcade game">
           <div class="instrument-bar">
@@ -265,7 +296,7 @@ onBeforeUnmount(() => {
             <canvas
               ref="canvas"
               tabindex="0"
-              aria-label="Asteroids playfield. Use left/right arrows or A/D to rotate, Up or W to thrust, Space to fire, Shift to boost, H or Down to hyperspace, X for a two-second shield, and P to pause."
+              aria-label="Asteroids playfield. Use left/right arrows or A/D to rotate, Up or W to thrust, Space to fire, Shift to boost, H or Down to hyperspace, Ctrl for a two-second shield, P to pause, and F to toggle fullscreen."
             />
             <div class="arena-coordinates" aria-hidden="true">
               <span>SECTOR 07 / DEEP SPACE</span
@@ -365,8 +396,8 @@ onBeforeUnmount(() => {
               <button
                 class="ability-button shield-ability"
                 :class="{ 'shield-active': state.shieldRemaining > 0 }"
-                aria-label="Deploy shield"
-                title="Shield (X) · 2 seconds of protection · 5-second recharge"
+                aria-label="Deploy shield (Ctrl)"
+                title="Shield (Ctrl) · 2 seconds of protection · 5-second recharge"
                 :disabled="state.shieldCooldown > 0"
                 @click="activateAbility('shield')"
               >
@@ -379,7 +410,7 @@ onBeforeUnmount(() => {
                         ? `${state.shieldCooldown.toFixed(1)}s RECHARGE`
                         : "2 SECONDS · READY"
                   }}</small></span
-                ><kbd>X</kbd>
+                ><kbd>Ctrl</kbd>
                 <i
                   class="ability-charge"
                   :style="{
@@ -405,7 +436,8 @@ onBeforeUnmount(() => {
             <button
               v-if="fullscreen"
               class="exit-fullscreen"
-              aria-label="Exit fullscreen"
+              aria-label="Exit fullscreen (F)"
+              aria-keyshortcuts="F"
               @click="toggleFullscreen"
             >
               <AppIcon name="fullscreen" />
@@ -510,8 +542,9 @@ onBeforeUnmount(() => {
                 /></button
               ><span class="tool-divider"></span
               ><button
-                aria-label="Toggle fullscreen"
-                title="Fullscreen"
+                aria-label="Toggle fullscreen (F)"
+                aria-keyshortcuts="F"
+                title="Fullscreen (F)"
                 @click="toggleFullscreen"
               >
                 <AppIcon name="fullscreen" />
@@ -547,8 +580,9 @@ onBeforeUnmount(() => {
                 <span>Hyperspace</span
                 ><span class="key-group"><kbd>H</kbd><kbd>↓</kbd></span>
               </div>
-              <div><span>Shield · 2 sec</span><kbd>X</kbd></div>
+              <div><span>Shield · 2 sec</span><kbd>Ctrl</kbd></div>
               <div><span>Pause</span><kbd>P</kbd></div>
+              <div><span>Fullscreen</span><kbd>F</kbd></div>
             </div>
             <div class="pilot-tip">
               <AppIcon name="spark" />
@@ -697,12 +731,12 @@ onBeforeUnmount(() => {
           <p>
             Press H or ↓ to jump to a random location and stop your momentum.
             Hyperspace recharges in three seconds, but your landing may be
-            dangerous. Press X for a two-second shield against rocks, UFOs, and
+            dangerous. Press Ctrl for a two-second shield against rocks, UFOs, and
             enemy shots; it recharges for five seconds after use. Both abilities
             also have on-screen buttons.
           </p>
           <p class="about-footnote">
-            No accounts. No tracking. Just a little space to play.
+            An unofficial tribute to Asteroids, originally released by Atari, Inc. in 1979. This project is not affiliated with, endorsed by, or sponsored by Atari.
           </p>
           <button class="launch-button" @click="modal = null">
             GOT IT, PILOT <span>↗</span>
