@@ -462,7 +462,7 @@ export class AsteroidsEngine {
     const angle = random(0, TAU),
       speed =
         random(22, 48) *
-        (1 + (this.state.wave - 1) * 0.12) *
+        Math.min(4, 1 + (this.state.wave - 1) * 0.25) *
         (this.difficulty === "hardcore" ? 1.6 : 1) *
         (1 + (3 - size) * 0.45);
     return {
