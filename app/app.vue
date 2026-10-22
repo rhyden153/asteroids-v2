@@ -234,15 +234,12 @@ onBeforeUnmount(() => {
     <main>
       <header class="site-header">
         <section class="page-intro">
-          <div>
-            <div class="eyebrow">
-              <span class="tiny-cross">+</span> EST. 1979 · REIMAGINED FOR NOW
-            </div>
-            <h1>NEO<span style="color: var(--orange)">/</span>ASTEROIDS</h1>
-          </div>
-          <p>
-            No downloads. No quarters. Just you and a whole lot of asteroids.
-          </p>
+          <h1 class="wordmark">
+            <span class="brand-symbol">
+              <AppIcon name="asteroid" />
+            </span>
+            NEO<span style="color: var(--orange)">/</span>ASTEROIDS
+          </h1>
           <nav aria-label="Main navigation">
             <button class="nav-button" @click="openModal('scores')">
               <AppIcon name="trophy" /><span>High scores</span>
@@ -257,6 +254,7 @@ onBeforeUnmount(() => {
           </nav>
         </section>
       </header>
+ 
       <div class="game-layout">
         <section class="game-panel" aria-label="Asteroids arcade game">
           <div class="instrument-bar">
