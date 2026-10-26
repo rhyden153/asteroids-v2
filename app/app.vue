@@ -49,6 +49,74 @@ const scores = ref<
 >([]);
 const best = computed(() => Math.max(0, ...scores.value.map((s) => s.score)));
 const formatScore = (value: number) => String(value).padStart(6, "0");
+const formatDate = (time: number) =>
+  new Date(time).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+const {
+  boards: leaderboards,
+  failed: leaderboardFailed,
+  refresh: refreshLeaderboards,
+  recordGame,
+  submit: submitScore,
+  savedInitials,
+} = useLeaderboard();
+const SCORE_TABS = [
+  {
+    id: "weekly",
+    label: "This week",
+    about: "The ten best flights since Monday. The board resets every Monday at 00:00 UTC.",
+  },
+  { id: "allTime", label: "All time", about: "The ten best flights from pilots everywhere." },
+  { id: "personal", label: "Yours", about: "Your top five flights, saved on this device." },
+] as const;
+const scoreTab = ref<(typeof SCORE_TABS)[number]["id"]>("weekly");
+const globalScores = computed(() =>
+  scoreTab.value === "personal" ? [] : (leaderboards.value?.[scoreTab.value] ?? []),
+);
+// Boards the last game qualified for, and where it placed once the initials were saved.
+const qualified = ref<LeaderboardName[]>([]);
+const placed = ref<LeaderboardRanks | null>(null);
+const initials = ref("");
+const initialsInput = ref<HTMLInputElement>();
+const savingScore = ref(false);
+const saveError = ref("");
+const placedText = computed(() =>
+  [
+    placed.value?.weekly && `#${placed.value.weekly} this week`,
+    placed.value?.allTime && `#${placed.value.allTime} all time`,
+  ]
+    .filter(Boolean)
+    .join(" · "),
+);
+function onInitials(event: Event) {
+  const input = event.target as HTMLInputElement;
+  initials.value = input.value = input.value
+    .replace(/[^a-z]/gi, "")
+    .toUpperCase()
+    .slice(0, 3);
+}
+async function saveScore() {
+  if (initials.value.length !== 3) {
+    saveError.value = "Enter three letters.";
+    return;
+  }
+  savingScore.value = true;
+  saveError.value = "";
+  try {
+    placed.value = await submitScore(
+      {
+        initials: initials.value,
+        score: state.value.score,
+        detail: `${difficulty.value === "hardcore" ? "Hardcore" : "Classic"} · Wave ${state.value.wave}`,
+      },
+      qualified.value,
+    );
+  } catch (error: any) {
+    saveError.value =
+      error?.data?.statusMessage || "Couldn’t reach the leaderboard. Try again.";
+  } finally {
+    savingScore.value = false;
+  }
+}
 const isPlaying = computed(() => state.value.status === "playing");
 const fullscreen = ref(false);
 let fullscreenPending = false;
@@ -56,6 +124,9 @@ let engine: AsteroidsEngine | undefined;
 let observer: ResizeObserver | undefined;
 function start() {
   modal.value = null;
+  qualified.value = [];
+  placed.value = null;
+  saveError.value = "";
   engine?.start(difficulty.value);
   canvas.value?.focus({ preventScroll: true });
   arena.value?.scrollIntoView({
@@ -84,6 +155,7 @@ function activateAbility(ability: "hyperspace" | "shield") {
 function openModal(value: "scores" | "about") {
   if (isPlaying.value) engine?.togglePause();
   modal.value = value;
+  if (value === "scores") void refreshLeaderboards();
 }
 async function toggleFullscreen() {
   const panel = arena.value;
@@ -211,6 +283,16 @@ onMounted(() => {
       try {
         localStorage.setItem("asteroids-scores", JSON.stringify(scores.value));
       } catch {}
+      const finalScore = next.score;
+      void recordGame(finalScore).then(async (names) => {
+        // Ignore the result if a new game has already started.
+        if (state.value.status !== "over" || state.value.score !== finalScore) return;
+        qualified.value = names;
+        if (!names.length) return;
+        initials.value ||= savedInitials();
+        await nextTick();
+        initialsInput.value?.focus({ preventScroll: true });
+      });
     }
     state.value = next;
   });
@@ -340,12 +422,17 @@ onBeforeUnmount(() => {
             >
               <div class="space-eyebrow">
                 {{
-                  state.score > 0 && state.score >= best
-                    ? "A NEW PERSONAL BEST"
-                    : "A GOOD RUN, PILOT"
+                  qualified.includes("allTime")
+                    ? "ALL-TIME TOP 10"
+                    : qualified.length
+                      ? "THIS WEEK’S TOP 10"
+                      : state.score > 0 && state.score >= best
+                        ? "A NEW PERSONAL BEST"
+                        : "A GOOD RUN, PILOT"
                 }}
               </div>
-              <h2>SPACE WINS.<br />THIS TIME.</h2>
+              <h2 v-if="qualified.length">YOU MADE<br />THE BOARD.</h2>
+              <h2 v-else>SPACE WINS.<br />THIS TIME.</h2>
               <p>
                 <span class="end-score">{{
                   state.score.toLocaleString()
@@ -353,11 +440,43 @@ onBeforeUnmount(() => {
                 points · {{ state.wave }}
                 {{ state.wave === 1 ? "wave" : "waves" }} reached
               </p>
-              <button class="launch-button" @click="start">
-                <AppIcon name="restart" /> ONE MORE GO <span>↗</span></button
-              ><span class="enter-hint"
-                >or press <kbd>enter</kbd> to try again</span
+              <form
+                v-if="qualified.length && !placed"
+                class="initials-form"
+                @submit.prevent="saveScore"
               >
+                <label for="initials">Enter your initials</label>
+                <div class="initials-row">
+                  <input
+                    id="initials"
+                    ref="initialsInput"
+                    :value="initials"
+                    maxlength="3"
+                    autocomplete="off"
+                    autocapitalize="characters"
+                    spellcheck="false"
+                    @input="onInitials"
+                  /><button class="launch-button" :disabled="savingScore">
+                    {{ savingScore ? "SAVING…" : "SIGN IT" }} <span>↗</span>
+                  </button>
+                </div>
+                <p v-if="saveError" class="initials-error" role="alert">
+                  {{ saveError }}
+                </p>
+                <button type="button" class="text-button" @click="qualified = []">
+                  Skip
+                </button>
+              </form>
+              <template v-else>
+                <p v-if="placed" class="placed-ranks">
+                  {{ placedText || "Score saved" }}
+                </p>
+                <button class="launch-button" @click="start">
+                  <AppIcon name="restart" /> ONE MORE GO <span>↗</span></button
+                ><span class="enter-hint"
+                  >or press <kbd>enter</kbd> to try again</span
+                >
+              </template>
             </div>
             <div v-if="isPlaying" class="boost-meter">
               <span>BOOST</span>
@@ -673,7 +792,7 @@ onBeforeUnmount(() => {
         role="dialog"
         aria-modal="true"
         :aria-label="
-          modal === 'scores' ? 'Personal high scores' : 'About the game'
+          modal === 'scores' ? 'High scores' : 'About the game'
         "
         tabindex="-1"
       >
@@ -686,10 +805,52 @@ onBeforeUnmount(() => {
           ×
         </button>
         <template v-if="modal === 'scores'"
-          ><div class="eyebrow">YOUR PERSONAL HALL OF FAME</div>
+          ><div class="eyebrow">THE HALL OF FAME</div>
           <h2>Written in the stars.</h2>
-          <p>Your top five flights, saved on this device.</p>
-          <div v-if="!scores.length" class="empty-scores">
+          <div class="score-tabs" role="group" aria-label="Leaderboard">
+            <button
+              v-for="tab in SCORE_TABS"
+              :key="tab.id"
+              :class="{ selected: scoreTab === tab.id }"
+              :aria-pressed="scoreTab === tab.id"
+              @click="scoreTab = tab.id"
+            >
+              {{ tab.label }}
+            </button>
+          </div>
+          <p>{{ SCORE_TABS.find((tab) => tab.id === scoreTab)?.about }}</p>
+          <template v-if="scoreTab !== 'personal'">
+            <div v-if="!leaderboards" class="empty-scores">
+              <AppIcon name="trophy" />
+              <h3>
+                {{ leaderboardFailed ? "Out of signal range." : "Tuning in…" }}
+              </h3>
+              <p>
+                {{
+                  leaderboardFailed
+                    ? "We couldn’t reach the leaderboard. Try again in a moment."
+                    : "Fetching the latest scores."
+                }}
+              </p>
+            </div>
+            <div v-else-if="!globalScores.length" class="empty-scores">
+              <AppIcon name="trophy" />
+              <h3>The board is wide open.</h3>
+              <p>Launch a flight and claim the top spot.</p>
+            </div>
+            <ol v-else class="score-list">
+              <li v-for="(entry, index) in globalScores" :key="`${entry.at}-${entry.initials}`">
+                <span class="rank">{{ String(index + 1).padStart(2, "0") }}</span>
+                <span class="initials">{{ entry.initials }}</span>
+                <div>
+                  <strong>{{ formatScore(entry.score) }}</strong
+                  ><small>{{ entry.detail }}</small>
+                </div>
+                <span>{{ formatDate(entry.at) }}</span>
+              </li>
+            </ol>
+          </template>
+          <div v-else-if="!scores.length" class="empty-scores">
             <AppIcon name="trophy" />
             <h3>A legend starts somewhere.</h3>
             <p>Launch a flight and make your mark.</p>
