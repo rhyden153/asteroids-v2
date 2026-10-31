@@ -26,7 +26,7 @@ Open the local URL printed by Nuxt (usually http://localhost:3000).
 - **M:** mute or unmute.
 - **F:** toggle fullscreen.
 - **Enter:** launch or retry.
-- Touch devices get on-screen steering, thrust, and fire controls. Hyperspace and shield buttons show readiness, active time, and recharge on both desktop and mobile.
+- Touch devices get on-screen steering, thrust, and fire controls. Compact Hyperspace and Shield buttons appear only during mobile/touch browser play, with single-word labels and charge bars for readiness and recharge. Ability buttons are hidden on desktop and in installed app display modes; keyboard shortcuts remain available.
 
 Classic starts with three lives. Hardcore starts with one and faster asteroids. Large rocks split into two medium rocks; medium rocks split into two small rocks. Hits award 20, 50, and 100 points respectively. Clear every asteroid to advance to a faster wave. The ship wraps around the screen and receives three seconds of protection when respawning.
 

@@ -869,7 +869,7 @@ kbd {
   position: absolute;
   right: 27px;
   bottom: 46px;
-  display: flex;
+  display: none;
   gap: 10px;
   z-index: 4;
 }
@@ -1665,21 +1665,19 @@ kbd {
 }
 @media (pointer: coarse), (max-width: 800px) {
   .flight-abilities {
-    left: 20px;
+    left: auto;
     right: 20px;
     bottom: 102px;
     gap: 8px;
   }
   .ability-button {
-    flex: 1;
     justify-content: center;
-    padding: 9px 7px 11px;
-    gap: 7px;
+    min-height: 44px;
+    padding: 8px 10px;
+    white-space: nowrap;
   }
-  .ability-button svg {
-    width: 16px;
-    height: 16px;
-  }
+  .ability-button > svg,
+  .ability-button small,
   .ability-button kbd {
     display: none;
   }
@@ -1690,6 +1688,18 @@ kbd {
     bottom: 163px;
   }
   .enter-hint {
+    display: none;
+  }
+}
+@media (pointer: coarse) {
+  .flight-abilities {
+    display: flex;
+  }
+}
+@media (display-mode: standalone),
+  (display-mode: minimal-ui),
+  (display-mode: window-controls-overlay) {
+  .flight-abilities {
     display: none;
   }
 }

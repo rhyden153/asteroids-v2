@@ -891,8 +891,8 @@ onBeforeUnmount(() => {
             Press H or ↓ to jump to a random location and stop your momentum.
             Hyperspace recharges in three seconds, but your landing may be
             dangerous. Press Ctrl for a two-second shield against rocks, UFOs, and
-            enemy shots; it recharges for five seconds after use. Both abilities
-            also have on-screen buttons.
+            enemy shots; it recharges for five seconds after use. Mobile/touch
+            browsers also have on-screen buttons for both abilities.
           </p>
           <p class="about-footnote">
             An unofficial tribute to Asteroids, originally released by Atari, Inc. in 1979. This project is not affiliated with, endorsed by, or sponsored by Atari.
