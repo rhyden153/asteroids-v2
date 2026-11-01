@@ -59,6 +59,15 @@ type Shard = Body & {
   points: [number, number][];
 };
 type Shockwave = { x: number; y: number; life: number; max: number };
+// Fireball and smoke puffs swell as they drift; each waits `delay` seconds (part of its life) to appear.
+type Puff = Body & {
+  life: number;
+  max: number;
+  delay: number;
+  radius: number;
+  grow: number;
+  smoke: boolean;
+};
 type Ufo = Body & {
   kind: "large" | "small";
   radius: number;
@@ -67,7 +76,11 @@ type Ufo = Body & {
   soundTimer: number;
   soundHigh: boolean;
 };
+type Threat = Body & { radius: number; life: number };
 const TAU = Math.PI * 2;
+// Hyperspace landings keep this much open space around the ship for this many seconds.
+const HYPERSPACE_CLEARANCE = 70;
+const HYPERSPACE_LOOKAHEAD = 1.5;
 const ROCK_RADII = [0, 15, 30, 56] as const;
 const ROCK_SCORES = [0, 100, 50, 20] as const;
 const random = (min: number, max: number) => min + Math.random() * (max - min);
@@ -80,6 +93,25 @@ const advanceBody = (body: Body, dt: number) => {
 const advanceShard = (shard: Shard, dt: number) => {
   advanceBody(shard, dt);
   shard.angle += shard.spin * dt;
+};
+const advancePuff = (puff: Puff, dt: number) => {
+  if (puff.max - puff.life < puff.delay) return;
+  advanceBody(puff, dt);
+  const drag = Math.pow(0.2, dt);
+  puff.vx *= drag;
+  puff.vy *= drag;
+  puff.radius += puff.grow * dt;
+};
+// A fireball burns from white-hot through orange to a dull red as it fades.
+const FIRE = [[255, 246, 214], [255, 196, 92], [240, 110, 56], [120, 44, 30]] as const;
+const fireColor = (t: number, alpha: number) => {
+  const s = Math.min(Math.max(t, 0), 0.999) * (FIRE.length - 1),
+    i = Math.floor(s),
+    f = s - i,
+    a = FIRE[i]!,
+    b = FIRE[i + 1]!;
+  const mix = (k: number) => Math.round(a[k]! + (b[k]! - a[k]!) * f);
+  return `rgba(${mix(0)},${mix(1)},${mix(2)},${Math.max(0, alpha)})`;
 };
 // Keep survivor order and array identity without allocating a filtered array.
 function updateTimed<T extends { life: number }>(
@@ -116,6 +148,7 @@ export class AsteroidsEngine {
   private jumps: { x: number; y: number; life: number }[] = [];
   private shards: Shard[] = [];
   private shockwaves: Shockwave[] = [];
+  private puffs: Puff[] = [];
   private keys = new Set<string>();
   private stars = Array.from({ length: 220 }, () => ({
     x: Math.random(),
@@ -142,6 +175,7 @@ export class AsteroidsEngine {
   private needsRedraw = true;
   private destroyed = false;
   private audio?: AudioContext;
+  private noiseBuffer?: AudioBuffer;
   private heartbeatPhase = 0;
   private heartbeatLow = false;
   private waveRockWork = 1;
@@ -206,7 +240,7 @@ export class AsteroidsEngine {
     scalePosition(this.ship);
     if (this.ufo) scalePosition(this.ufo);
     for (const bodies of [this.rocks, this.bullets, this.enemyBullets,
-      this.particles, this.jumps, this.shards, this.shockwaves]) {
+      this.particles, this.jumps, this.shards, this.shockwaves, this.puffs]) {
       for (const body of bodies) scalePosition(body);
     }
     this.canvas.width = pixelWidth;
@@ -272,11 +306,9 @@ export class AsteroidsEngine {
     const ship = this.ship;
     this.burst(ship.x, ship.y, 28, "#b9a7fa", 210);
     this.jumps.push({ x: ship.x, y: ship.y, life: 0.5 });
-    // Offset on the wrapped field guarantees a noticeable jump without promising a safe landing.
-    ship.x =
-      (ship.x + random(this.width * 0.25, this.width * 0.75)) % this.width;
-    ship.y =
-      (ship.y + random(this.height * 0.25, this.height * 0.75)) % this.height;
+    const landing = this.findHyperspaceLanding();
+    ship.x = landing.x;
+    ship.y = landing.y;
     ship.vx = 0;
     ship.vy = 0;
     this.burst(ship.x, ship.y, 28, "#b9a7fa", 150);
@@ -285,6 +317,48 @@ export class AsteroidsEngine {
     this.tone(120, 0.3, "sine", 0.08, 1500);
     this.emit();
     return true;
+  }
+  // Sample uniform spots and keep the first one that stays clear of every threat's
+  // projected path; a crowded field falls back to the roomiest spot found.
+  private findHyperspaceLanding() {
+    const margin = 30,
+      minJump = Math.min(this.width, this.height) * 0.3;
+    const threats: Threat[] = [];
+    for (const rock of this.rocks) threats.push({ ...rock, life: Infinity });
+    if (this.ufo) threats.push({ ...this.ufo, life: Infinity });
+    for (const bullet of this.enemyBullets) threats.push({ ...bullet, radius: 4 });
+    let best = { x: this.ship.x, y: this.ship.y }, bestGap = -Infinity;
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const x = random(margin, this.width - margin),
+        y = random(margin, this.height - margin);
+      if (Math.hypot(x - this.ship.x, y - this.ship.y) < minJump) continue;
+      const gap = this.landingGap(x, y, threats);
+      if (gap >= HYPERSPACE_CLEARANCE) return { x, y };
+      if (gap > bestGap) {
+        best = { x, y };
+        bestGap = gap;
+      }
+    }
+    return best;
+  }
+  // Smallest edge-to-edge distance between a landing spot and any threat over the next
+  // HYPERSPACE_LOOKAHEAD seconds, measured on the wrapped field.
+  private landingGap(
+    x: number,
+    y: number,
+    threats: Threat[],
+  ) {
+    let gap = Infinity;
+    for (const threat of threats) {
+      for (let t = 0; t <= Math.min(HYPERSPACE_LOOKAHEAD, threat.life); t += 0.1) {
+        let dx = Math.abs(threat.x + threat.vx * t - x) % this.width,
+          dy = Math.abs(threat.y + threat.vy * t - y) % this.height;
+        dx = Math.min(dx, this.width - dx);
+        dy = Math.min(dy, this.height - dy);
+        gap = Math.min(gap, Math.hypot(dx, dy) - threat.radius);
+      }
+    }
+    return gap;
   }
   useShield() {
     if (
@@ -320,6 +394,7 @@ export class AsteroidsEngine {
     this.jumps.length = 0;
     this.shards.length = 0;
     this.shockwaves.length = 0;
+    this.puffs.length = 0;
     this.emitTimer = 0;
     this.needsRedraw = true;
     this.waveTimer = 0;
@@ -377,6 +452,38 @@ export class AsteroidsEngine {
     oscillator.stop(now + duration);
     oscillator.onended = () => {
       oscillator.disconnect();
+      gain.disconnect();
+    };
+  }
+  // Filtered white noise, for explosions: the lowpass sweeps from `from` to `to` Hz as it fades.
+  private noise(duration: number, volume: number, from: number, to: number) {
+    if (this.muted || !this.audio || this.audio.state !== "running") return;
+    const audio = this.audio,
+      now = audio.currentTime;
+    if (!this.noiseBuffer) {
+      this.noiseBuffer = audio.createBuffer(1, audio.sampleRate, audio.sampleRate);
+      const data = this.noiseBuffer.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    }
+    const source = audio.createBufferSource(),
+      filter = audio.createBiquadFilter(),
+      gain = audio.createGain();
+    source.buffer = this.noiseBuffer;
+    source.loop = true;
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(from, now);
+    filter.frequency.exponentialRampToValueAtTime(to, now + duration);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(volume, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(audio.destination);
+    source.start(now);
+    source.stop(now + duration);
+    source.onended = () => {
+      source.disconnect();
+      filter.disconnect();
       gain.disconnect();
     };
   }
@@ -650,9 +757,12 @@ export class AsteroidsEngine {
   private hitShip() {
     if (this.isProtected || this.state.status !== "playing") return;
     this.shatterShip();
+    this.explodeShip();
     this.burst(this.ship.x, this.ship.y, 45, "#f38254", 240);
-    this.tone(900, 0.05, "square", 0.05, 200);
-    this.tone(160, 0.45, "sawtooth", 0.08, 20);
+    // A low thump and some grit under a roar that darkens as it dies away.
+    this.tone(120, 0.6, "sine", 0.12, 28);
+    this.tone(160, 0.45, "sawtooth", 0.05, 20);
+    this.noise(1.4, 0.14, 3800, 140);
     this.shake = this.reducedMotion ? 0 : 8;
     this.state.lives--;
     this.deathTimer = 1;
@@ -708,6 +818,31 @@ export class AsteroidsEngine {
       max: 0.4,
     });
   }
+  // A quick fireball, then smoke billowing out of it as it burns down.
+  private explodeShip() {
+    if (this.reducedMotion) return;
+    const { x, y, vx, vy } = this.ship;
+    const puff = (smoke: boolean, delay: number, life: number, speed: number, radius: number, grow: number) => {
+      const angle = random(0, TAU),
+        velocity = random(0, speed);
+      this.puffs.push({
+        x: x + random(-5, 5),
+        y: y + random(-5, 5),
+        vx: vx * 0.25 + Math.cos(angle) * velocity,
+        vy: vy * 0.25 + Math.sin(angle) * velocity,
+        life: delay + life,
+        max: delay + life,
+        delay,
+        radius,
+        grow,
+        smoke,
+      });
+    };
+    for (let i = 0; i < 9; i++)
+      puff(true, random(0.15, 0.35), random(1.1, 1.7), 50, random(9, 14), random(20, 32));
+    for (let i = 0; i < 7; i++)
+      puff(false, random(0, 0.06), random(0.4, 0.65), 100, random(7, 12), random(50, 80));
+  }
   private burst(
     x: number,
     y: number,
@@ -747,6 +882,7 @@ export class AsteroidsEngine {
     updateTimed(this.jumps, dt);
     updateTimed(this.shards, dt, advanceShard);
     updateTimed(this.shockwaves, dt);
+    updateTimed(this.puffs, dt, advancePuff);
     this.shake = Math.max(0, this.shake - dt * 20);
     if (this.state.status !== "playing") return;
     const waitingForShip = this.deathTimer > 0;
@@ -1110,6 +1246,37 @@ export class AsteroidsEngine {
       ctx.stroke();
       ctx.restore();
     }
+    // Smoke behind the fireball; the fire adds light. Vector mode outlines both.
+    for (const smoke of [true, false]) {
+      ctx.save();
+      if (!smoke) ctx.globalCompositeOperation = "lighter";
+      for (const puff of this.puffs) {
+        const age = puff.max - puff.life - puff.delay;
+        if (puff.smoke !== smoke || age < 0) continue;
+        const t = age / (puff.max - puff.delay),
+          alpha = smoke ? Math.min(1, t / 0.2) * (1 - t) * 0.6 : (1 - t) ** 1.5;
+        ctx.beginPath();
+        ctx.arc(puff.x, puff.y, puff.radius, 0, TAU);
+        if (this.graphics === "vector") {
+          ctx.lineWidth = smoke ? 1.2 : 1.8;
+          ctx.strokeStyle = smoke ? `rgba(150,156,146,${alpha * 1.6})` : fireColor(t, alpha);
+          ctx.stroke();
+          continue;
+        }
+        const glow = ctx.createRadialGradient(puff.x, puff.y, 0, puff.x, puff.y, puff.radius);
+        if (smoke) {
+          glow.addColorStop(0, `rgba(118,122,114,${alpha})`);
+          glow.addColorStop(1, "rgba(118,122,114,0)");
+        } else {
+          glow.addColorStop(0, fireColor(t * 0.7, alpha));
+          glow.addColorStop(0.5, fireColor(t, alpha * 0.8));
+          glow.addColorStop(1, fireColor(t + 0.2, 0));
+        }
+        ctx.fillStyle = glow;
+        ctx.fill();
+      }
+      ctx.restore();
+    }
     for (const shard of this.shards) {
       ctx.save();
       ctx.translate(shard.x, shard.y);
@@ -1256,9 +1423,11 @@ export class AsteroidsEngine {
     document.removeEventListener("visibilitychange", this.visibility);
     if (this.audio) void this.audio.close().catch(() => {});
     this.audio = undefined;
+    this.noiseBuffer = undefined;
     this.keys.clear();
     this.rocks.length = this.bullets.length = this.enemyBullets.length = 0;
     this.particles.length = this.jumps.length = this.shards.length = this.shockwaves.length = 0;
+    this.puffs.length = 0;
     this.ufo = null;
     this.rockSprites = new WeakMap();
     this.backgroundGlow = undefined;

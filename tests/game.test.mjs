@@ -481,12 +481,43 @@ test("hyperspace relocates the ship, stops momentum, and preserves its heading",
   assert.equal(game.useHyperspace(), false);
 });
 
-test("hyperspace retains the risk of landing on an asteroid", () => {
-  game.protection = 0;
-  game.useHyperspace();
-  game.rocks = [game.makeRock(game.ship.x, game.ship.y, 3)];
-  game.update(0);
-  assert.equal(game.state.lives, 2);
+test("hyperspace lands clear of rocks, saucers, shots, and their paths", () => {
+  game.spawnUfo("small");
+  game.ufo.x = game.width / 2;
+  game.enemyBullets.push({ x: 100, y: 100, vx: 300, vy: 0, life: 2 });
+  for (let i = 0; i < 100; i++) {
+    game.state.hyperspaceCooldown = 0;
+    assert.equal(game.useHyperspace(), true);
+    const threats = [
+      ...game.rocks.map((rock) => ({ ...rock, life: Infinity })),
+      { ...game.ufo, life: Infinity },
+      ...game.enemyBullets.map((bullet) => ({ ...bullet, radius: 4 })),
+    ];
+    assert.ok(game.landingGap(game.ship.x, game.ship.y, threats) >= 70);
+  }
+});
+
+test("hyperspace can land anywhere, not just near the edges", () => {
+  game.rocks = [];
+  let central = 0;
+  for (let i = 0; i < 200; i++) {
+    Object.assign(game.ship, { x: game.width / 2, y: game.height / 2 });
+    game.state.hyperspaceCooldown = 0;
+    game.useHyperspace();
+    const { x, y } = game.ship;
+    if (x > game.width * 0.25 && x < game.width * 0.75 &&
+      y > game.height * 0.25 && y < game.height * 0.75) central++;
+  }
+  assert.ok(central > 10);
+});
+
+test("hyperspace still jumps when no landing is fully clear", () => {
+  game.rocks = [];
+  for (let x = 0; x < game.width; x += 60)
+    for (let y = 0; y < game.height; y += 60) game.rocks.push(game.makeRock(x, y, 2));
+  const before = { ...game.ship };
+  assert.equal(game.useHyperspace(), true);
+  assert.notDeepEqual({ x: game.ship.x, y: game.ship.y }, { x: before.x, y: before.y });
 });
 
 test("shield blocks rocks for exactly two seconds, then expires", () => {
@@ -782,4 +813,44 @@ test("finished audio pulses release their stopper without clearing a newer voice
   assert.equal(game.stopHeartbeatVoice, currentStopper);
   oscillators[2].onended();
   assert.equal(game.stopHeartbeatVoice, undefined);
+});
+
+test("a destroyed ship leaves a fireball that fades into smoke", () => {
+  game.protection = 0;
+  game.hitShip();
+  const fire = game.puffs.filter((puff) => !puff.smoke);
+  const smoke = game.puffs.filter((puff) => puff.smoke);
+  assert.ok(fire.length > 0 && smoke.length > 0);
+  // Smoke appears as the fire burns down, and outlasts it.
+  assert.ok(Math.min(...smoke.map((puff) => puff.delay)) > Math.max(...fire.map((puff) => puff.delay)));
+  assert.ok(Math.min(...smoke.map((puff) => puff.max)) > Math.max(...fire.map((puff) => puff.max)));
+  const waiting = smoke[0], start = { x: waiting.x, radius: waiting.radius };
+  game.update(0.1);
+  assert.equal(waiting.x, start.x);
+  assert.equal(waiting.radius, start.radius);
+  for (let i = 0; i < 15; i++) game.update(0.033);
+  assert.ok(waiting.radius > start.radius);
+  for (let i = 0; i < 5; i++) game.update(0.033);
+  assert.ok(game.puffs.length > 0 && game.puffs.every((puff) => puff.smoke));
+  for (let i = 0; i < 55; i++) game.update(0.033);
+  assert.equal(game.puffs.length, 0);
+});
+
+test("ship explosions roar with filtered noise, and reduced motion skips the fireball", () => {
+  const nodes = [];
+  const parameter = { setValueAtTime() {}, exponentialRampToValueAtTime() {} };
+  const node = (extra) => { const n = { connect() {}, disconnect() {}, ...extra }; nodes.push(n); return n; };
+  game.audio = {
+    state: "running", currentTime: 0, sampleRate: 100, destination: {}, close: async () => {},
+    createOscillator: () => node({ frequency: parameter, start() {}, stop() {} }),
+    createGain: () => node({ gain: parameter }),
+    createBiquadFilter: () => node({ frequency: parameter }),
+    createBuffer: (_, length) => ({ getChannelData: () => new Float32Array(length) }),
+    createBufferSource: () => node({ start() {}, stop() {}, kind: "noise" }),
+  };
+  game.reducedMotion = true;
+  game.protection = 0;
+  game.hitShip();
+  assert.equal(nodes.filter((n) => n.kind === "noise").length, 1);
+  assert.equal(game.puffs.length, 0);
 });

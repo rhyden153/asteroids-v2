@@ -889,8 +889,9 @@ onBeforeUnmount(() => {
           </p>
           <p>
             Press H or ↓ to jump to a random location and stop your momentum.
-            Hyperspace recharges in three seconds, but your landing may be
-            dangerous. Press Ctrl for a two-second shield against rocks, UFOs, and
+            Hyperspace recharges in three seconds and steers clear of nearby
+            threats when it can, though a crowded field may leave no safe
+            landing. Press Ctrl for a two-second shield against rocks, UFOs, and
             enemy shots; it recharges for five seconds after use. Mobile/touch
             browsers also have on-screen buttons for both abilities.
           </p>
