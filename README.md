@@ -30,7 +30,7 @@ Open the local URL printed by Nuxt (usually http://localhost:3000).
 
 Classic starts with three lives. Hardcore starts with one and faster asteroids. Large rocks split into two medium rocks; medium rocks split into two small rocks. Hits award 20, 50, and 100 points respectively. Clear every asteroid to advance to a faster wave. The ship wraps around the screen and receives three seconds of protection when respawning.
 
-Your five best flights and sound preference are saved in localStorage on this device. Switching away from the game automatically pauses play. No backend or account is required.
+Your five best flights and sound preference are saved in localStorage on this device. Every positive score at game over is checked against the weekly and all-time global top ten, even if it is below your device's best. Qualifying scores can be submitted with three-letter initials. Global leaderboards require the Redis backend; playing and local scores work without it. Switching away from the game automatically pauses play. No account is required.
 
 A crisp, electronic tick-tock accompanies each flight, alternating two square-wave tones. It starts slowly and accelerates as you destroy asteroids and their fragments, then resets with the next wave. The pulse pauses with the game, stops on game over or between waves, and follows the **M** / sound-button mute setting in both graphics modes.
 

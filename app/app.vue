@@ -55,7 +55,6 @@ const {
   boards: leaderboards,
   failed: leaderboardFailed,
   refresh: refreshLeaderboards,
-  recordGame,
   submit: submitScore,
   savedInitials,
 } = useLeaderboard();
@@ -284,9 +283,12 @@ onMounted(() => {
         localStorage.setItem("asteroids-scores", JSON.stringify(scores.value));
       } catch {}
       const finalScore = next.score;
-      void recordGame(finalScore).then(async (names) => {
+      void refreshLeaderboards().then(async (boards) => {
         // Ignore the result if a new game has already started.
         if (state.value.status !== "over" || state.value.score !== finalScore) return;
+        const names = boards
+          ? LEADERBOARD_NAMES.filter((name) => qualifiesForLeaderboard(finalScore, boards[name]))
+          : [];
         qualified.value = names;
         if (!names.length) return;
         initials.value ||= savedInitials();

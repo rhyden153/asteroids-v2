@@ -946,7 +946,7 @@ export class AsteroidsEngine {
           y: ship.y + Math.sin(ship.angle) * 21,
           vx: Math.cos(ship.angle) * bulletSpeed + ship.vx * 0.4,
           vy: Math.sin(ship.angle) * bulletSpeed + ship.vy * 0.4,
-          life: ((this.width / 2) * 0.9) / bulletSpeed,
+          life: (this.width * 0.5) / bulletSpeed,
         });
         this.shotTimer = 0.16;
         this.tone(880, 0.07, "triangle", 0.045, 160);
