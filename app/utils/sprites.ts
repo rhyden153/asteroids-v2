@@ -31,6 +31,102 @@ function polygon(
   }
 }
 
+// Small background cameo ships, facing right. Keep their silhouettes in both styles.
+export function drawFalcon(ctx: Context, mode: GraphicsMode) {
+  const modern = mode === "modern";
+  ctx.save();
+  ctx.lineWidth = 0.85;
+  ctx.strokeStyle = modern ? "#bdc9cd" : "#a8bbab";
+  ctx.fillStyle = modern ? "#89979b" : "#172522";
+  ctx.beginPath();
+  ctx.ellipse(-2, 0, 14, 14, 0, 0, TAU);
+  ctx.fill();
+  ctx.stroke();
+  // The two forward mandibles and the starboard cockpit make the freighter recognizable.
+  polygon(ctx, [[4, -11], [21, -8], [21, -3], [6, -3]], modern ? "#b4bcb6" : "#172522", ctx.strokeStyle);
+  polygon(ctx, [[6, 3], [21, 3], [21, 8], [4, 11]], modern ? "#929f9c" : "#172522", ctx.strokeStyle);
+  polygon(ctx, [[-2, 9], [9, 14], [15, 10], [8, 5]], modern ? "#9eafb1" : "#172522", ctx.strokeStyle);
+  polygon(ctx, [[9, 10], [14, 10], [11, 13], [7, 12]], "#3b6573", "#85bbc8");
+  // Cool blue exhaust follows the curved stern, rather than a fighter's point flame.
+  ctx.beginPath();
+  ctx.arc(-2, 0, 13.5, Math.PI * 0.7, Math.PI * 1.3);
+  ctx.strokeStyle = "#8bdeed";
+  ctx.lineWidth = 2.4;
+  ctx.stroke();
+  ctx.lineWidth = 0.65;
+  ctx.strokeStyle = modern ? "#435c64" : "#71978a";
+  for (const y of [-7, 7]) {
+    ctx.beginPath();
+    ctx.moveTo(-12, y);
+    ctx.lineTo(-5, y * 0.5);
+    ctx.lineTo(8, y * 0.5);
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.arc(-2, 0, 5.5, 0, TAU);
+  ctx.fillStyle = modern ? "#bdc6bd" : "#172522";
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(-2, 0, 2.4, 0, TAU);
+  ctx.stroke();
+  // Offset radar dish and engine vents, visible even at the native 38 px size.
+  ctx.beginPath();
+  ctx.ellipse(-3, -8, 3.5, 2.5, -0.35, 0, TAU);
+  ctx.fillStyle = modern ? "#d0d4c7" : "#172522";
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = modern ? "#344850" : "#71978a";
+  for (const y of [-5, 0, 5]) ctx.fillRect(-11, y - 1, 3, 2);
+  ctx.restore();
+}
+
+export function drawTieFighter(ctx: Context, mode: GraphicsMode) {
+  const modern = mode === "modern";
+  ctx.save();
+  ctx.lineWidth = 0.85;
+  // Twin hexagonal solar panels, joined to the central ball cockpit by pylons.
+  ctx.strokeStyle = "#96acb7";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(0, -11);
+  ctx.lineTo(0, 11);
+  ctx.stroke();
+  ctx.lineWidth = 0.85;
+  for (const side of [-1, 1]) {
+    ctx.save();
+    ctx.scale(1, side);
+    polygon(ctx, [[-12, 9], [-7, 6], [8, 6], [12, 9], [8, 15], [-8, 15]],
+      modern ? "#14232d" : "#101c20", "#9aaeb6");
+    ctx.strokeStyle = modern ? "#506773" : "#5d837a";
+    ctx.beginPath();
+    ctx.moveTo(-10, 10);
+    ctx.lineTo(10, 10);
+    ctx.moveTo(-5, 7);
+    ctx.lineTo(-5, 14);
+    ctx.moveTo(5, 7);
+    ctx.lineTo(5, 14);
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.beginPath();
+  ctx.arc(0, 0, 5.5, 0, TAU);
+  ctx.fillStyle = modern ? "#879da7" : "#172522";
+  ctx.strokeStyle = "#b0c3c8";
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(1, 0, 3, 0, TAU);
+  ctx.fillStyle = "#152c35";
+  ctx.fill();
+  ctx.strokeStyle = "#718f9b";
+  ctx.lineWidth = 0.6;
+  ctx.stroke();
+  ctx.fillStyle = "#e7957d";
+  ctx.fillRect(4, -1, 1, 2);
+  ctx.restore();
+}
+
 export function drawModernRock(ctx: Context, radius: number, points: number[]) {
   ctx.save();
   ctx.scale(radius, radius);

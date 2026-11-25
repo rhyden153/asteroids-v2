@@ -1,4 +1,6 @@
 import {
+  drawFalcon,
+  drawTieFighter,
   drawModernRock,
   drawModernShip,
   drawModernShot,
@@ -77,6 +79,9 @@ type Ufo = Body & {
   soundHigh: boolean;
 };
 type Threat = Body & { radius: number; life: number };
+type AsteroidChase = { age: number; direction: 1 | -1; lane: number };
+const CHASE_DURATION = 9;
+const CHASE_COOLDOWN = 45;
 const TAU = Math.PI * 2;
 // Bring synthesized effects closer to the recorded explosions while preserving their mix.
 const SYNTH_GAIN = 4;
@@ -152,6 +157,10 @@ export class AsteroidsEngine {
   private ufo: Ufo | null = null;
   private ufoTimer = 0;
   private ufoVisits = 0;
+  private asteroidChase: AsteroidChase | null = null;
+  private chaseCooldown = 0;
+  private chasePasses = 0;
+  private lastChaseWave: number | null = null;
   private particles: Particle[] = [];
   private jumps: { x: number; y: number; life: number }[] = [];
   private shards: Shard[] = [];
@@ -477,6 +486,10 @@ export class AsteroidsEngine {
     this.ufo = null;
     this.ufoTimer = random(12, 18);
     this.ufoVisits = 0;
+    this.asteroidChase = null;
+    this.chaseCooldown = 0;
+    this.chasePasses = 0;
+    this.lastChaseWave = null;
     this.particles.length = 0;
     this.jumps.length = 0;
     this.shards.length = 0;
@@ -1025,7 +1038,10 @@ export class AsteroidsEngine {
     updateTimed(this.shockwaves, dt);
     updateTimed(this.puffs, dt, advancePuff);
     this.shake = Math.max(0, this.shake - dt * 20);
-    if (this.state.status !== "playing") return;
+    if (this.state.status !== "playing") {
+      this.asteroidChase = null;
+      return;
+    }
     const waitingForShip = this.deathTimer > 0;
     // Ability durations use simulation time, so pausing freezes protection and recharge.
     this.state.hyperspaceCooldown = tickTimer(
@@ -1170,11 +1186,64 @@ export class AsteroidsEngine {
       }
     }
     this.updateHeartbeat(dt);
+    this.updateAsteroidChase(dt);
     this.emitTimer += dt;
     if (this.emitTimer > 0.1) {
       this.emitTimer = 0;
       this.emit();
     }
+  }
+  private updateAsteroidChase(dt: number) {
+    if (this.state.status !== "playing" || this.reducedMotion) {
+      this.asteroidChase = null;
+      return;
+    }
+    if (this.asteroidChase) {
+      this.asteroidChase.age += dt;
+      if (this.asteroidChase.age >= CHASE_DURATION || this.state.wave !== this.lastChaseWave) {
+        this.asteroidChase = null;
+        this.chaseCooldown = CHASE_COOLDOWN;
+      }
+      return;
+    }
+    this.chaseCooldown = Math.max(0, this.chaseCooldown - dt);
+    if (this.chaseCooldown > 0 || this.rocks.length < 25 ||
+      (this.lastChaseWave !== null && this.state.wave <= this.lastChaseWave + 1)) return;
+    // Cosmetic choices never consume gameplay randomness or change any world entities.
+    const lanes = [0.34, 0.62, 0.46, 0.7];
+    this.asteroidChase = {
+      age: 0,
+      direction: this.chasePasses % 2 ? -1 : 1,
+      lane: lanes[this.chasePasses % lanes.length]!,
+    };
+    this.chasePasses++;
+    this.lastChaseWave = this.state.wave;
+  }
+  private drawAsteroidChase() {
+    const chase = this.asteroidChase;
+    if (!chase || this.reducedMotion) return;
+    const ctx = this.ctx, distance = this.width + 320;
+    const progress = chase.age / CHASE_DURATION;
+    const amplitude = Math.min(34, this.height * 0.045);
+    ctx.save();
+    ctx.globalAlpha = 0.8 * Math.min(1, chase.age / 0.4, (CHASE_DURATION - chase.age) / 0.5);
+    ctx.translate(chase.direction === 1 ? 0 : this.width, 0);
+    ctx.scale(chase.direction, 1);
+    const ship = (behind: number, offset: number, falcon: boolean) => {
+      const p = progress - behind / distance;
+      const phase = p * TAU * 1.25;
+      ctx.save();
+      ctx.translate(-50 + p * distance, this.height * chase.lane + Math.sin(phase) * amplitude + offset);
+      ctx.rotate(Math.atan2(Math.cos(phase) * amplitude * TAU * 1.25, distance));
+      if (falcon) drawFalcon(ctx, this.graphics);
+      else drawTieFighter(ctx, this.graphics);
+      ctx.restore();
+    };
+    ship(0, 0, true);
+    ship(95, -13, false);
+    ship(150, 14, false);
+    ship(210, -4, false);
+    ctx.restore();
   }
   private updateBullets(bullets: Bullet[], dt: number) {
     updateTimed(bullets, dt, advanceBody);
@@ -1232,6 +1301,8 @@ export class AsteroidsEngine {
       }
     }
     ctx.globalAlpha = 1;
+    // The entire chase sits behind rocks, projectiles, effects, and the player's ship.
+    this.drawAsteroidChase();
     ctx.save();
     if (this.shake > 0)
       ctx.translate(
@@ -1577,6 +1648,8 @@ export class AsteroidsEngine {
     this.particles.length = this.jumps.length = this.shards.length = this.shockwaves.length = 0;
     this.puffs.length = 0;
     this.ufo = null;
+    this.asteroidChase = null;
+    this.chaseCooldown = 0;
     this.rockSprites = new WeakMap();
     this.backgroundGlow = undefined;
     this.emittedState = undefined;

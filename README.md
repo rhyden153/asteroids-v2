@@ -30,6 +30,8 @@ Open the local URL printed by Nuxt (usually http://localhost:3000).
 
 Classic starts with three lives. Hardcore starts with one and faster asteroids. Large rocks split into two medium rocks; medium rocks split into two small rocks. Hits award 20, 50, and 100 points respectively. Clear every asteroid to advance to a faster wave. The ship wraps around the screen and receives three seconds of protection when respawning.
 
+An asteroid-field Easter egg appears when 25 or more rocks are on screen: a small Millennium Falcon crosses the background pursued by three TIE fighters, in a nod to *The Empire Strikes Back*. The nine-second flyby renders behind gameplay, uses ships roughly the size of the player's ship, and has no collisions, shots, sounds, or scoring effects. It can appear once per level and skips the next level after an appearance, with a minimum 45 seconds of active play between flybys. It continues if the rock count drops, but ends when the level changes so it never carries into consecutive levels. Subsequent passes alternate direction and height. It supports both graphics modes, pauses with the game, resets on restart, and is disabled when reduced motion is requested.
+
 ### PC controllers
 
 Plug in a controller and press a button while the game page is focused. Controllers that the browser recognizes with the standard Gamepad API layout work automatically, including compatible Xbox and PlayStation controllers. Use HTTPS or localhost; browsers may not expose controller input on insecure sites. Devices with custom/raw layouts are not mapped.

@@ -41,6 +41,119 @@ beforeEach(() => {
 });
 afterEach(() => game.destroy());
 
+test("the background chase begins at 25 asteroids and finishes even if the field thins", () => {
+  game.rocks = Array.from({ length: 24 }, () => game.makeRock(30, 30, 1));
+  game.update(0);
+  assert.equal(game.asteroidChase, null);
+  game.rocks.push(game.makeRock(30, 30, 1));
+  game.update(0);
+  assert.equal(game.asteroidChase.age, 0);
+  game.rocks.pop();
+  game.update(0.1);
+  assert.equal(game.asteroidChase.age, 0.1);
+  game.updateAsteroidChase(9);
+  assert.equal(game.asteroidChase, null);
+  assert.equal(game.chaseCooldown, 45);
+});
+
+test("the chase has a cooldown, alternates direction, and never changes gameplay or RNG", (t) => {
+  game.rocks = Array.from({ length: 25 }, () => game.makeRock(30, 30, 1));
+  const rocks = [...game.rocks], state = { ...game.state }, ship = { ...game.ship };
+  t.mock.method(Math, "random", () => assert.fail("cosmetic animation consumed gameplay randomness"));
+  game.updateAsteroidChase(0);
+  assert.equal(game.asteroidChase.direction, 1);
+  game.updateAsteroidChase(9);
+  game.state.wave += 2;
+  state.wave += 2;
+  game.updateAsteroidChase(44);
+  assert.equal(game.asteroidChase, null);
+  game.updateAsteroidChase(1);
+  assert.equal(game.asteroidChase.direction, -1);
+  assert.deepEqual(game.rocks, rocks);
+  assert.deepEqual(game.state, state);
+  assert.deepEqual(game.ship, ship);
+  assert.equal(game.bullets.length, 0);
+  assert.equal(game.enemyBullets.length, 0);
+  assert.equal(game.ufo, null);
+});
+
+test("chase animation pauses with play, clears on game over/restart/destroy, and respects reduced motion", () => {
+  game.rocks = Array.from({ length: 25 }, () => game.makeRock(30, 30, 1));
+  game.update(0);
+  game.togglePause();
+  game.update(3);
+  assert.equal(game.asteroidChase.age, 0);
+  game.togglePause();
+  game.update(0.1);
+  assert.equal(game.asteroidChase.age, 0.1);
+  game.state.status = "over";
+  game.update(0);
+  assert.equal(game.asteroidChase, null);
+  game.start("classic");
+  game.rocks = Array.from({ length: 25 }, () => game.makeRock(30, 30, 1));
+  game.reducedMotion = true;
+  game.update(0);
+  assert.equal(game.asteroidChase, null);
+  game.reducedMotion = false;
+  game.update(0);
+  assert.ok(game.asteroidChase);
+  game.start("classic");
+  assert.equal(game.asteroidChase, null);
+  assert.equal(game.chaseCooldown, 0);
+  assert.equal(game.chasePasses, 0);
+  assert.equal(game.lastChaseWave, null);
+  game.rocks = Array.from({ length: 25 }, () => game.makeRock(30, 30, 1));
+  game.update(0);
+  game.destroy();
+  assert.equal(game.asteroidChase, null);
+});
+
+test("the chase appears once per level and skips the following level, including unfinished flybys", () => {
+  game.rocks = Array.from({ length: 25 }, () => game.makeRock(30, 30, 1));
+  game.state.wave = 4;
+  game.updateAsteroidChase(0);
+  assert.ok(game.asteroidChase);
+  game.updateAsteroidChase(9);
+  game.updateAsteroidChase(60);
+  assert.equal(game.asteroidChase, null);
+  game.state.wave = 5;
+  game.updateAsteroidChase(60);
+  assert.equal(game.asteroidChase, null);
+  game.state.wave = 6;
+  game.updateAsteroidChase(0);
+  assert.ok(game.asteroidChase);
+  // A new level ends a flyby rather than carrying it into consecutive levels.
+  game.state.wave = 7;
+  game.updateAsteroidChase(0);
+  assert.equal(game.asteroidChase, null);
+  game.updateAsteroidChase(60);
+  assert.equal(game.asteroidChase, null);
+  game.state.wave = 8;
+  game.updateAsteroidChase(0);
+  assert.ok(game.asteroidChase);
+});
+
+test("the chase renders behind gameplay in both graphics modes", () => {
+  for (const mode of ["modern", "vector"]) {
+    const order = [];
+    game.setGraphics(mode);
+    game.rocks = [game.makeRock(30, 30, 1)];
+    game.rockSprites.set(game.rocks[0], {});
+    game.drawAsteroidChase = () => order.push("chase");
+    game.ctx = new Proxy({}, {
+      get(_target, key) {
+        if (key === "createRadialGradient" || key === "createLinearGradient")
+          return () => ({ addColorStop() {} });
+        if (key === "translate") return () => order.push("world");
+        return () => {};
+      },
+    });
+    game.draw();
+    assert.equal(order[0], "chase");
+    assert.ok(order.includes("world"));
+  }
+});
+
 function controller(buttons = [], axes = [0, 0], index = 0) {
   return { connected: true, mapping: "standard", index, axes,
     buttons: Array.from({ length: 17 }, (_, i) => ({ pressed: buttons.includes(i), value: buttons.includes(i) ? 1 : 0 })),
