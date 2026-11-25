@@ -627,7 +627,7 @@ test("hyperspace lands clear of rocks, saucers, shots, and their paths", () => {
   }
 });
 
-test("hyperspace can land anywhere, not just near the edges", () => {
+test("hyperspace can land centrally within the allowed area", () => {
   game.rocks = [];
   let central = 0;
   for (let i = 0; i < 200; i++) {
@@ -641,6 +641,27 @@ test("hyperspace can land anywhere, not just near the edges", () => {
   assert.ok(central > 10);
 });
 
+test("hyperspace excludes the outer 15% on every edge, including its fallback after resizing", (t) => {
+  let sample = 0.5;
+  t.mock.method(Math, "random", () => sample);
+  for (const size of [{ width: 960, height: 570 }, { width: 350, height: 700 }]) {
+    rect = size;
+    game.resize();
+    game.rocks = [];
+    for (sample of [0, 0.5, 1]) {
+      for (const origin of [0, 0.5, 1]) {
+        Object.assign(game.ship, { x: game.width * origin, y: game.height * origin });
+        game.state.hyperspaceCooldown = 0;
+        assert.equal(game.useHyperspace(), true);
+        assert.ok(game.ship.x >= game.width * 0.15 && game.ship.x <= game.width * 0.85);
+        assert.ok(game.ship.y >= game.height * 0.15 && game.ship.y <= game.height * 0.85);
+        assert.ok(Math.hypot(game.ship.x - game.width * origin,
+          game.ship.y - game.height * origin) >= Math.min(game.width, game.height) * 0.3);
+      }
+    }
+  }
+});
+
 test("hyperspace still jumps when no landing is fully clear", () => {
   game.rocks = [];
   for (let x = 0; x < game.width; x += 60)
@@ -648,6 +669,8 @@ test("hyperspace still jumps when no landing is fully clear", () => {
   const before = { ...game.ship };
   assert.equal(game.useHyperspace(), true);
   assert.notDeepEqual({ x: game.ship.x, y: game.ship.y }, { x: before.x, y: before.y });
+  assert.ok(game.ship.x >= game.width * 0.15 && game.ship.x <= game.width * 0.85);
+  assert.ok(game.ship.y >= game.height * 0.15 && game.ship.y <= game.height * 0.85);
 });
 
 test("shield blocks rocks for exactly two seconds, then expires", () => {

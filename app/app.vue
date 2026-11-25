@@ -162,6 +162,7 @@ async function toggleFullscreen() {
   const panel = arena.value;
   if (!panel || fullscreenPending) return;
   fullscreenPending = true;
+  canvas.value?.focus({ preventScroll: true });
   try {
     if (document.fullscreenElement === panel) {
       await document.exitFullscreen();
@@ -177,12 +178,18 @@ async function toggleFullscreen() {
   } catch {
     fullscreen.value = document.fullscreenElement === panel || !fullscreen.value;
   } finally {
-    fullscreenPending = false;
+    // Fullscreen changes can move focus while Vue updates the arena and toolbar.
+    await nextTick();
     canvas.value?.focus({ preventScroll: true });
+    fullscreenPending = false;
   }
 }
-function onFullscreen() {
+async function onFullscreen() {
   fullscreen.value = document.fullscreenElement === arena.value;
+  if (fullscreen.value) {
+    await nextTick();
+    canvas.value?.focus({ preventScroll: true });
+  }
 }
 function onKey(event: KeyboardEvent) {
   const target = event.target as HTMLElement;

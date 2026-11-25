@@ -980,6 +980,12 @@ kbd {
   z-index: 5;
   border-radius: 4px;
 }
+.arena:fullscreen,
+.arena:fullscreen *,
+.arena.fallback-fullscreen,
+.arena.fallback-fullscreen * {
+  cursor: none;
+}
 .modal-backdrop {
   position: fixed;
   inset: 0;

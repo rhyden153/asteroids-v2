@@ -397,19 +397,25 @@ export class AsteroidsEngine {
     this.emit();
     return true;
   }
-  // Sample uniform spots and keep the first one that stays clear of every threat's
+  // Sample the central 70% and keep the first spot clear of every threat's
   // projected path; a crowded field falls back to the roomiest spot found.
   private findHyperspaceLanding() {
-    const margin = 30,
+    const marginX = this.width * 0.15,
+      marginY = this.height * 0.15,
       minJump = Math.min(this.width, this.height) * 0.3;
     const threats: Threat[] = [];
     for (const rock of this.rocks) threats.push({ ...rock, life: Infinity });
     if (this.ufo) threats.push({ ...this.ufo, life: Infinity });
     for (const bullet of this.enemyBullets) threats.push({ ...bullet, radius: 4 });
-    let best = { x: this.ship.x, y: this.ship.y }, bestGap = -Infinity;
+    // A legal fallback is needed even if every random sample is too close to the ship.
+    let best = {
+      x: this.ship.x < this.width / 2 ? this.width - marginX : marginX,
+      y: this.ship.y < this.height / 2 ? this.height - marginY : marginY,
+    };
+    let bestGap = this.landingGap(best.x, best.y, threats);
     for (let attempt = 0; attempt < 60; attempt++) {
-      const x = random(margin, this.width - margin),
-        y = random(margin, this.height - margin);
+      const x = random(marginX, this.width - marginX),
+        y = random(marginY, this.height - marginY);
       if (Math.hypot(x - this.ship.x, y - this.ship.y) < minJump) continue;
       const gap = this.landingGap(x, y, threats);
       if (gap >= HYPERSPACE_CLEARANCE) return { x, y };

@@ -20,7 +20,7 @@ Open the local URL printed by Nuxt (usually http://localhost:3000).
 - **Arrow keys / A, D, W:** rotate and thrust.
 - **Space:** fire; hold for continuous shots.
 - **Shift + thrust:** rechargeable boost.
-- **H / Down:** hyperspace jump to a random location clear of rocks, saucers, and shots (and their paths) when one exists; stops momentum and recharges in three seconds. A crowded field may leave no safe landing.
+- **H / Down:** hyperspace jump to a random location at least 15% of the playfield width/height away from each edge, clear of rocks, saucers, and shots (and their paths) when one exists; stops momentum and recharges in three seconds. A crowded field may leave no safe landing, but the edge exclusion always applies.
 - **Ctrl (either key):** deploy a shield for exactly two seconds against rocks, UFOs, and hostile shots, followed by five seconds of recharge.
 - **P / Escape:** pause or resume.
 - **M:** mute or unmute.

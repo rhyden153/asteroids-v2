@@ -12,6 +12,7 @@ const handlers = stripTypeScriptTypes(source.slice(
 ));
 function setup() {
   const document = { fullscreenElement: null };
+  const canvas = { focus() { document.activeElement = this; } };
   let requests = 0;
   const panel = {
     async requestFullscreen() {
@@ -21,11 +22,11 @@ function setup() {
   };
   document.exitFullscreen = async () => { document.fullscreenElement = null; };
   const context = vm.createContext({
-    document, arena: { value: panel }, canvas: { value: { focus() {} } },
+    document, arena: { value: panel }, canvas: { value: canvas }, nextTick: async () => {},
     fullscreen: { value: false }, fullscreenPending: false, modal: { value: null },
   });
   vm.runInContext(handlers, context);
-  return { context, panel, document, requests: () => requests };
+  return { context, panel, canvas, document, requests: () => requests };
 }
 const event = (extra = {}) => ({
   code: "KeyF", target: { closest: () => null },
@@ -113,4 +114,34 @@ test("fullscreen requests cannot overlap", async () => {
   finish();
   await pending;
   assert.equal(c.fullscreen.value, true);
+});
+
+test("fullscreen button hands focus to the canvas immediately and after entry settles", async () => {
+  const { context: c, panel, canvas, document } = setup();
+  const button = {};
+  document.activeElement = button;
+  let finish;
+  panel.requestFullscreen = () => new Promise(resolve => { finish = resolve; });
+  const pending = c.toggleFullscreen();
+  assert.equal(document.activeElement, canvas);
+  // Simulate the browser moving focus during the fullscreen transition.
+  document.activeElement = button;
+  document.fullscreenElement = panel;
+  finish();
+  await pending;
+  assert.equal(document.activeElement, canvas);
+});
+
+test("native fullscreen entry events and fallback mode focus the playfield", async () => {
+  const { context: c, panel, canvas, document } = setup();
+  document.fullscreenElement = panel;
+  await c.onFullscreen();
+  assert.equal(document.activeElement, canvas);
+  document.fullscreenElement = null;
+  await c.onFullscreen();
+  panel.requestFullscreen = undefined;
+  document.activeElement = {};
+  await c.toggleFullscreen();
+  assert.equal(c.fullscreen.value, true);
+  assert.equal(document.activeElement, canvas);
 });
