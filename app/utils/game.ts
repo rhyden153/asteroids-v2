@@ -78,6 +78,14 @@ type Ufo = Body & {
 };
 type Threat = Body & { radius: number; life: number };
 const TAU = Math.PI * 2;
+// Bring synthesized effects closer to the recorded explosions while preserving their mix.
+const SYNTH_GAIN = 4;
+const EXPLOSION_FILES = {
+  rock: ["/rock-hit-1.wav", "/rock-hit-2.wav"],
+  ship: ["/ship-explosion.mp3"],
+  ufo: ["/ufo-burst.wav"],
+} as const;
+type ExplosionKind = keyof typeof EXPLOSION_FILES;
 // Hyperspace landings keep this much open space around the ship for this many seconds.
 const HYPERSPACE_CLEARANCE = 70;
 const HYPERSPACE_LOOKAHEAD = 1.5;
@@ -181,6 +189,11 @@ export class AsteroidsEngine {
   private destroyed = false;
   private audio?: AudioContext;
   private noiseBuffer?: AudioBuffer;
+  private explosionBuffers: Partial<Record<ExplosionKind, AudioBuffer[]>> = {};
+  private nextRockImpact = 0;
+  private explosionLoad?: Promise<void>;
+  private explosionAbort = new AbortController();
+  private explosionVoices = new Map<AudioBufferSourceNode, GainNode>();
   private heartbeatPhase = 0;
   private heartbeatLow = false;
   private waveRockWork = 1;
@@ -286,7 +299,10 @@ export class AsteroidsEngine {
   }
   setMuted(muted: boolean) {
     this.muted = muted;
-    if (muted) this.stopHeartbeat();
+    if (muted) {
+      this.stopHeartbeat();
+      this.stopExplosions();
+    }
     else if (this.state.status === "playing") this.initAudio();
   }
   setGraphics(mode: GraphicsMode) {
@@ -443,6 +459,7 @@ export class AsteroidsEngine {
     );
   }
   start(difficulty: Difficulty) {
+    this.stopExplosions();
     this.difficulty = difficulty;
     this.state = createGameState(difficulty);
     this.keys.clear();
@@ -476,7 +493,10 @@ export class AsteroidsEngine {
       return;
     this.state.status = this.state.status === "playing" ? "paused" : "playing";
     this.needsRedraw = true;
-    if (this.state.status === "paused") this.stopHeartbeat();
+    if (this.state.status === "paused") {
+      this.stopHeartbeat();
+      this.stopExplosions();
+    }
     this.keys.clear();
     this.gamepadKeys.clear();
     this.emit();
@@ -488,9 +508,55 @@ export class AsteroidsEngine {
   private initAudio() {
     try {
       this.audio ??= new AudioContext();
+      void this.loadExplosions(this.audio);
       if (this.audio.state === "suspended")
         void this.audio.resume().catch(() => {});
     } catch {}
+  }
+  private loadExplosions(audio: AudioContext) {
+    // Cache each effect once, using prepared clips where the originals need trimming.
+    this.explosionLoad ??= Promise.all((Object.keys(EXPLOSION_FILES) as ExplosionKind[]).map(async kind => {
+      const loaded = await Promise.all(EXPLOSION_FILES[kind].map(async url => {
+        try {
+          const response = await fetch(url, { signal: this.explosionAbort.signal });
+          if (!response.ok) return;
+          return await audio.decodeAudioData(await response.arrayBuffer());
+        } catch {
+          // Keep the synthesized effect if a file is unavailable or cannot be decoded.
+        }
+      }));
+      const buffers = loaded.filter((buffer): buffer is AudioBuffer => !!buffer);
+      if (!this.destroyed && buffers.length) this.explosionBuffers[kind] = buffers;
+    })).then(() => {});
+    return this.explosionLoad;
+  }
+  private playExplosion(kind: ExplosionKind, volume: number) {
+    const audio = this.audio, buffers = this.explosionBuffers[kind];
+    if (this.muted || !audio || audio.state !== "running" || !buffers?.length) return false;
+    const source = audio.createBufferSource(), gain = audio.createGain();
+    const index = kind === "rock" ? this.nextRockImpact % buffers.length : 0;
+    source.buffer = buffers[index]!;
+    if (kind === "rock") this.nextRockImpact = (index + 1) % buffers.length;
+    gain.gain.setValueAtTime(volume, audio.currentTime);
+    source.connect(gain);
+    gain.connect(audio.destination);
+    this.explosionVoices.set(source, gain);
+    source.onended = () => {
+      source.disconnect();
+      gain.disconnect();
+      this.explosionVoices.delete(source);
+    };
+    source.start();
+    return true;
+  }
+  private stopExplosions() {
+    for (const [source, gain] of this.explosionVoices) {
+      source.onended = null;
+      source.stop();
+      source.disconnect();
+      gain.disconnect();
+    }
+    this.explosionVoices.clear();
   }
   private tone(
     frequency: number,
@@ -509,8 +575,8 @@ export class AsteroidsEngine {
       endFrequency,
       now + duration,
     );
-    gain.gain.setValueAtTime(volume, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+    gain.gain.setValueAtTime(volume * SYNTH_GAIN, now);
+    gain.gain.exponentialRampToValueAtTime(0.001 * SYNTH_GAIN, now + duration);
     oscillator.connect(gain);
     gain.connect(this.audio.destination);
     oscillator.start(now);
@@ -538,9 +604,9 @@ export class AsteroidsEngine {
     filter.type = "lowpass";
     filter.frequency.setValueAtTime(from, now);
     filter.frequency.exponentialRampToValueAtTime(to, now + duration);
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(volume, now + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+    gain.gain.setValueAtTime(0.0001 * SYNTH_GAIN, now);
+    gain.gain.exponentialRampToValueAtTime(volume * SYNTH_GAIN, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001 * SYNTH_GAIN, now + duration);
     source.connect(filter);
     filter.connect(gain);
     gain.connect(audio.destination);
@@ -579,9 +645,9 @@ export class AsteroidsEngine {
     oscillator.type = "square";
     oscillator.frequency.setValueAtTime(pitch, now);
     gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(0.012, now + 0.002);
-    gain.gain.setValueAtTime(0.012, now + 0.04);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.065);
+    gain.gain.linearRampToValueAtTime(0.012 * SYNTH_GAIN, now + 0.002);
+    gain.gain.setValueAtTime(0.012 * SYNTH_GAIN, now + 0.04);
+    gain.gain.exponentialRampToValueAtTime(0.001 * SYNTH_GAIN, now + 0.065);
     oscillator.connect(gain);
     gain.connect(audio.destination);
     oscillator.start(now);
@@ -721,7 +787,8 @@ export class AsteroidsEngine {
     if (!this.ufo) return;
     if (explode) {
       this.burst(this.ufo.x, this.ufo.y, 30, "#f28b71", 190);
-      this.tone(240, 0.3, "sawtooth", 0.06, 35);
+      if (!this.playExplosion("ufo", 0.55))
+        this.tone(240, 0.3, "sawtooth", 0.06, 35);
       this.shake = this.reducedMotion ? 0 : 3;
     }
     if (awardPoints) this.state.score += this.ufo.kind === "small" ? 1000 : 200;
@@ -815,7 +882,8 @@ export class AsteroidsEngine {
         );
       }
     }
-    this.tone(80 + rock.size * 20, 0.16, "sawtooth", 0.045, 25);
+    if (!this.playExplosion("rock", 0.45))
+      this.tone(80 + rock.size * 20, 0.16, "sawtooth", 0.045, 25);
     this.shake = this.reducedMotion ? 0 : rock.size * 0.8;
     if (awardPoints) this.emit();
   }
@@ -824,10 +892,11 @@ export class AsteroidsEngine {
     this.shatterShip();
     this.explodeShip();
     this.burst(this.ship.x, this.ship.y, 45, "#f38254", 240);
-    // A low thump and some grit under a roar that darkens as it dies away.
-    this.tone(120, 0.6, "sine", 0.12, 28);
-    this.tone(160, 0.45, "sawtooth", 0.05, 20);
-    this.noise(1.4, 0.14, 3800, 140);
+    if (!this.playExplosion("ship", 0.65)) {
+      this.tone(120, 0.6, "sine", 0.12, 28);
+      this.tone(160, 0.45, "sawtooth", 0.05, 20);
+      this.noise(1.4, 0.14, 3800, 140);
+    }
     this.shake = this.reducedMotion ? 0 : 8;
     this.state.lives--;
     this.deathTimer = 1;
@@ -1482,6 +1551,9 @@ export class AsteroidsEngine {
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.explosionAbort.abort();
+    this.stopExplosions();
+    this.explosionBuffers = {};
     this.stopHeartbeat();
     cancelAnimationFrame(this.frame);
     window.removeEventListener("keydown", this.keydown);

@@ -966,7 +966,7 @@ test("a destroyed ship leaves a fireball that fades into smoke", () => {
   assert.equal(game.puffs.length, 0);
 });
 
-test("ship explosions roar with filtered noise, and reduced motion skips the fireball", () => {
+test("ship explosions fall back to filtered noise, and reduced motion skips the fireball", () => {
   const nodes = [];
   const parameter = { setValueAtTime() {}, exponentialRampToValueAtTime() {} };
   const node = (extra) => { const n = { connect() {}, disconnect() {}, ...extra }; nodes.push(n); return n; };
@@ -983,4 +983,132 @@ test("ship explosions roar with filtered noise, and reduced motion skips the fir
   game.hitShip();
   assert.equal(nodes.filter((n) => n.kind === "noise").length, 1);
   assert.equal(game.puffs.length, 0);
+});
+
+test("explosion files are fetched and decoded once, with failures handled", async (t) => {
+  const requests = [], decoded = [];
+  t.mock.method(globalThis, "fetch", async (url) => {
+    requests.push(url);
+    return { ok: true, arrayBuffer: async () => url };
+  });
+  const audio = { decodeAudioData: async data => {
+    const buffer = { data };
+    decoded.push(buffer);
+    return buffer;
+  } };
+  await game.loadExplosions(audio);
+  await game.loadExplosions(audio);
+  assert.deepEqual(requests, ["/rock-hit-1.wav", "/rock-hit-2.wav", "/ship-explosion.mp3", "/ufo-burst.wav"]);
+  assert.deepEqual(game.explosionBuffers.rock, [decoded[0], decoded[1]]);
+  assert.deepEqual(game.explosionBuffers.ship, [decoded[2]]);
+  assert.deepEqual(game.explosionBuffers.ufo, [decoded[3]]);
+});
+
+function sampleAudio() {
+  const sources = [];
+  const audio = {
+    state: "running", currentTime: 0, destination: {}, close: async () => {},
+    createBufferSource() {
+      const source = { connect() {}, disconnect() { this.disconnected = true; },
+        start() { this.started = true; }, stop() { this.stopped = true; } };
+      sources.push(source);
+      return source;
+    },
+    createGain: () => ({ gain: { setValueAtTime() {} }, connect() {}, disconnect() {} }),
+  };
+  game.audio = audio;
+  game.explosionBuffers = {
+    rock: [{ name: "rock1" }, { name: "rock2" }], ship: [{ name: "ship" }],
+    ufo: [{ name: "ufo" }],
+  };
+  return { audio, sources };
+}
+
+test("rock hits and ship destruction play their respective samples and allow overlap", () => {
+  const { sources } = sampleAudio();
+  const tones = [];
+  game.tone = (...args) => tones.push(args);
+  game.breakRock(0, true);
+  game.breakRock(0, false);
+  game.protection = 0;
+  game.hitShip();
+  assert.deepEqual(sources.map(source => source.buffer.name), ["rock1", "rock2", "ship"]);
+  assert.ok(sources.every(source => source.started));
+  assert.equal(tones.length, 0);
+  assert.equal(game.explosionVoices.size, 3);
+  sources[0].onended();
+  assert.equal(game.explosionVoices.size, 2);
+  assert.equal(sources[0].disconnected, true);
+  game.playExplosion("rock", 0.45);
+  assert.equal(sources.at(-1).buffer.name, "rock1");
+});
+
+test("one failed impact file still allows playback of the other variant", async (t) => {
+  const { sources, audio } = sampleAudio();
+  t.mock.method(globalThis, "fetch", async url => {
+    if (url === "/rock-hit-1.wav") throw Error("Unavailable");
+    return { ok: true, arrayBuffer: async () => url };
+  });
+  audio.decodeAudioData = async data => ({ name: data });
+  await game.loadExplosions(audio);
+  for (let i = 0; i < 3; i++) assert.equal(game.playExplosion("rock", 0.45), true);
+  assert.ok(sources.every(source => source.buffer.name === "/rock-hit-2.wav"));
+});
+
+test("shooting either UFO plays its explosion sample; leaving the field stays silent", () => {
+  const { sources } = sampleAudio();
+  game.rocks = [];
+  const tones = [];
+  game.tone = (...args) => tones.push(args);
+  for (const kind of ["large", "small"]) {
+    game.spawnUfo(kind);
+    Object.assign(game.ufo, { x: 150, y: 150, vx: 0, vy: 0, soundTimer: 1 });
+    game.bullets = [{ x: 150, y: 150, vx: 0, vy: 0, life: 1 }];
+    game.update(0);
+    assert.equal(game.ufo, null);
+    assert.equal(sources.at(-1).buffer.name, "ufo");
+    assert.equal(sources.at(-1).started, true);
+  }
+  assert.equal(sources.length, 2);
+  assert.equal(tones.length, 0);
+  game.spawnUfo("large");
+  game.removeUfo(false);
+  assert.equal(sources.length, 2);
+});
+
+test("UFO explosions fall back to synthesis when the sample is unavailable", () => {
+  const tones = [];
+  game.tone = (...args) => tones.push(args);
+  game.spawnUfo("large");
+  game.removeUfo(true);
+  assert.equal(tones.length, 1);
+  assert.equal(tones[0][0], 240);
+});
+
+test("mute, pause, restart, and destroy stop active explosion samples", () => {
+  const { sources, audio } = sampleAudio();
+  for (const stop of [() => game.setMuted(true), () => game.togglePause(),
+    () => game.start("classic"), () => game.destroy()]) {
+    game.muted = false;
+    game.state.status = "playing";
+    // Keep restart from initiating another load in this playback-only test.
+    game.initAudio = () => {};
+    game.tone = () => {};
+    assert.equal(game.playExplosion("rock", 0.45), true);
+    stop();
+    assert.equal(sources.at(-1).stopped, true);
+    assert.equal(game.explosionVoices.size, 0);
+  }
+  game.audio = audio;
+  game.muted = true;
+  assert.equal(game.playExplosion("ship", 0.65), false);
+});
+
+test("failed audio requests preserve fallback effects and destroy cancels pending loads", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => { throw Error("Unavailable"); });
+  await game.loadExplosions({});
+  assert.deepEqual(game.explosionBuffers, {});
+  assert.equal(game.playExplosion("rock", 0.45), false);
+  game.destroy();
+  assert.equal(game.explosionAbort.signal.aborted, true);
 });

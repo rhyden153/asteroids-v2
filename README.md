@@ -48,6 +48,12 @@ Your five best flights and sound preference are saved in localStorage on this de
 
 A crisp, electronic tick-tock accompanies each flight, alternating two square-wave tones. It starts slowly and accelerates as you destroy asteroids and their fragments, then resets with the next wave. The pulse pauses with the game, stops on game over or between waves, and follows the **M** / sound-button mute setting in both graphics modes.
 
+Rock hits alternate between `public/rock-hit-1.wav` and `public/rock-hit-2.wav`, and player ship destruction plays `public/ship-explosion.mp3`. Each rock impact is 0.48 seconds, cut from the loud middle burst of `rock-impact-1.mp3` (2.451–2.931 seconds) and `rock-impact-2.mp3` (2.411–2.891 seconds). Short fades and a decaying envelope turn the original swells into immediate impacts, with balanced levels and headroom for overlapping hits. The files load and decode once when audio starts. Mute, pause, and restart stop active explosion sounds. The original synthesized effects provide a fallback while samples load or if a file cannot be played.
+
+To regenerate the rock impacts, install Python 3 and VLC, then run `py scripts/prepare-rock-impacts.py` (or `python3 scripts/prepare-rock-impacts.py` on other platforms). Pass `--vlc PATH` if VLC is not found automatically. The game uses the prepared WAVs directly and needs neither tool at runtime; all original MP3s are preserved.
+
+UFO destruction plays `public/ufo-burst.wav`, a 1.345-second effect derived from `public/ufo-explosion.mp3` (0.105–1.450 seconds). The prepared effect removes quiet padding, adds short fades, and balances the level with the other explosions. It shares the same mute, pause, and cleanup behavior and uses a synthesized fallback if unavailable. Regenerate it with `py scripts/prepare-ufo-explosion.py`, using the same Python/VLC setup as the rock impacts.
+
 The playfield uses the full page width, with the flight manual below it. UFOs first appear after 12–18 seconds of active play, then return 18–30 seconds after leaving or being destroyed (more often in Hardcore). Large saucers fire randomly and award 200 points. Smaller, faster saucers aim at you and award 1,000 points; they become more common as you progress. Watch for the incoming-signal warning and listen for the saucer's alternating tone. UFO shots can break rocks, but those hits do not score points. Clear the asteroids and any active UFO before the next wave.
 
 ## Production
