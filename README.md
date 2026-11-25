@@ -30,6 +30,20 @@ Open the local URL printed by Nuxt (usually http://localhost:3000).
 
 Classic starts with three lives. Hardcore starts with one and faster asteroids. Large rocks split into two medium rocks; medium rocks split into two small rocks. Hits award 20, 50, and 100 points respectively. Clear every asteroid to advance to a faster wave. The ship wraps around the screen and receives three seconds of protection when respawning.
 
+### PC controllers
+
+Plug in a controller and press a button while the game page is focused. Controllers that the browser recognizes with the standard Gamepad API layout work automatically, including compatible Xbox and PlayStation controllers. Use HTTPS or localhost; browsers may not expose controller input on insecure sites. Devices with custom/raw layouts are not mapped.
+
+- **Left stick / D-pad left and right:** rotate. A 25% stick dead zone prevents drift.
+- **Left stick up / D-pad up / RT (R2):** thrust.
+- **A (Cross):** fire continuously while held; launch or retry from the ready/game-over screen.
+- **RB (R1) + thrust:** boost.
+- **X (Square):** hyperspace.
+- **LB (L1):** shield.
+- **Start (Options):** launch, pause, or resume.
+
+Keyboard and touch controls remain available alongside the controller. Abilities and pause activate once per press. Disconnecting the active controller pauses play; reconnect and press Start to resume. Controller input is ignored while the page is unfocused, a dialog is open, or a score field is being edited. The flight manual shows connection status and button mappings.
+
 Your five best flights and sound preference are saved in localStorage on this device. Every positive score at game over is checked against the weekly and all-time global top ten, even if it is below your device's best. Qualifying scores can be submitted with three-letter initials. Global leaderboards require the Redis backend; playing and local scores work without it. Switching away from the game automatically pauses play. No account is required.
 
 A crisp, electronic tick-tock accompanies each flight, alternating two square-wave tones. It starts slowly and accelerates as you destroy asteroids and their fragments, then resets with the next wave. The pulse pauses with the game, stops on game over or between waves, and follows the **M** / sound-button mute setting in both graphics modes.

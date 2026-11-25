@@ -150,6 +150,11 @@ export class AsteroidsEngine {
   private shockwaves: Shockwave[] = [];
   private puffs: Puff[] = [];
   private keys = new Set<string>();
+  private gamepadKeys = new Set<string>();
+  private gamepadButtons = new Set<number>();
+  private gamepadIndex: number | null = null;
+  private focused = true;
+  private focus = () => { this.focused = true; };
   private stars = Array.from({ length: 220 }, () => ({
     x: Math.random(),
     y: Math.random(),
@@ -197,6 +202,8 @@ export class AsteroidsEngine {
   };
   private keyup = (event: KeyboardEvent) => this.keys.delete(event.code);
   private blur = () => {
+    this.focused = false;
+    this.gamepadKeys.clear();
     this.keys.clear();
     if (this.state.status === "playing") this.togglePause();
   };
@@ -207,6 +214,11 @@ export class AsteroidsEngine {
   constructor(
     private canvas: HTMLCanvasElement,
     private onState: (state: GameState) => void,
+    private controller: {
+      enabled?: () => boolean;
+      launch?: () => void;
+      connected?: (connected: boolean) => void;
+    } = {},
   ) {
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Canvas is not supported in this browser.");
@@ -216,6 +228,7 @@ export class AsteroidsEngine {
     window.addEventListener("keydown", this.keydown);
     window.addEventListener("keyup", this.keyup);
     window.addEventListener("blur", this.blur);
+    window.addEventListener("focus", this.focus);
     document.addEventListener("visibilitychange", this.visibility);
     this.frame = requestAnimationFrame(this.loop);
   }
@@ -295,6 +308,56 @@ export class AsteroidsEngine {
     this.keys.add(key);
     if (["KeyH", "ArrowDown"].includes(key)) this.useHyperspace();
     if (key === "ControlLeft" || key === "ControlRight") this.useShield();
+  }
+  private controlHeld(key: string) {
+    return this.keys.has(key) || this.gamepadKeys.has(key);
+  }
+  private pollGamepad() {
+    let pads: (Gamepad | null)[] = [];
+    try {
+      pads = Array.from(navigator.getGamepads?.() ?? []);
+    } catch {
+      // Browsers may disable controller access through their permissions policy.
+    }
+    const previous = this.gamepadIndex;
+    const pad = pads.find(p => p?.connected && p.mapping === "standard" && p.index === previous)
+      ?? pads.find(p => p?.connected && p.mapping === "standard");
+    this.gamepadKeys.clear();
+    if ((pad?.index ?? null) !== previous) {
+      this.gamepadIndex = pad?.index ?? null;
+      this.gamepadButtons.clear();
+      this.controller.connected?.(!!pad);
+      if (previous !== null && this.state.status === "playing") this.togglePause();
+    }
+    if (!pad) return;
+    const pressed = new Set<number>();
+    pad.buttons.forEach((button, index) => {
+      if (button.pressed || button.value > 0.5) pressed.add(index);
+    });
+    if (previous !== null && previous !== pad.index) {
+      this.gamepadButtons = pressed;
+      return;
+    }
+    const tapped = (index: number) => pressed.has(index) && !this.gamepadButtons.has(index);
+    const enabled = this.focused && !document.hidden && (this.controller.enabled?.() ?? true);
+    if (enabled) {
+      if (tapped(9) || (tapped(0) && ["ready", "over"].includes(this.state.status))) {
+        if (this.state.status === "ready" || this.state.status === "over") this.controller.launch?.();
+        else this.togglePause();
+      } else if (this.state.status === "playing" && this.deathTimer <= 0) {
+        // Keep controller input separate so releasing it cannot cancel keyboard/touch input.
+        const hold = (key: string, active: boolean) => { if (active) this.gamepadKeys.add(key); };
+        const x = pad.axes[0] ?? 0, y = pad.axes[1] ?? 0;
+        hold("ArrowLeft", x < -0.25 || pressed.has(14));
+        hold("ArrowRight", x > 0.25 || pressed.has(15));
+        hold("ArrowUp", y < -0.25 || pressed.has(12) || pressed.has(7));
+        hold("Space", pressed.has(0));
+        hold("ShiftLeft", pressed.has(5));
+        if (tapped(2)) this.useHyperspace();
+        if (tapped(4)) this.useShield();
+      }
+    }
+    this.gamepadButtons = pressed;
   }
   useHyperspace() {
     if (
@@ -383,6 +446,7 @@ export class AsteroidsEngine {
     this.difficulty = difficulty;
     this.state = createGameState(difficulty);
     this.keys.clear();
+    this.gamepadKeys.clear();
     this.rocks.length = 0;
     this.bullets.length = 0;
     this.enemyBullets.length = 0;
@@ -414,6 +478,7 @@ export class AsteroidsEngine {
     this.needsRedraw = true;
     if (this.state.status === "paused") this.stopHeartbeat();
     this.keys.clear();
+    this.gamepadKeys.clear();
     this.emit();
     if (this.state.status === "playing") {
       this.canvas.focus({ preventScroll: true });
@@ -768,6 +833,7 @@ export class AsteroidsEngine {
     this.deathTimer = 1;
     this.stopHeartbeat();
     this.keys.clear();
+    this.gamepadKeys.clear();
     this.emit();
   }
   private shatterShip() {
@@ -895,12 +961,12 @@ export class AsteroidsEngine {
     this.state.shieldCooldown = tickTimer(this.state.shieldCooldown, dt);
     if (!waitingForShip) {
       const ship = this.ship;
-      const left = this.keys.has("ArrowLeft") || this.keys.has("KeyA"),
-        right = this.keys.has("ArrowRight") || this.keys.has("KeyD");
-      const thrust = this.keys.has("ArrowUp") || this.keys.has("KeyW");
+      const left = this.controlHeld("ArrowLeft") || this.controlHeld("KeyA"),
+        right = this.controlHeld("ArrowRight") || this.controlHeld("KeyD");
+      const thrust = this.controlHeld("ArrowUp") || this.controlHeld("KeyW");
       const boosting =
         thrust &&
-        (this.keys.has("ShiftLeft") || this.keys.has("ShiftRight")) &&
+        (this.controlHeld("ShiftLeft") || this.controlHeld("ShiftRight")) &&
         this.state.boost > 1;
       ship.angle += ((right ? 1 : 0) - (left ? 1 : 0)) * 4.4 * dt;
       this.state.boost = Math.max(
@@ -939,7 +1005,7 @@ export class AsteroidsEngine {
       this.wrap(ship);
       this.protection -= dt;
       this.shotTimer -= dt;
-      if (this.keys.has("Space") && this.shotTimer <= 0) {
+      if (this.controlHeld("Space") && this.shotTimer <= 0) {
         const bulletSpeed = 700;
         this.bullets.push({
           x: ship.x + Math.cos(ship.angle) * 21,
@@ -1352,9 +1418,9 @@ export class AsteroidsEngine {
         ctx.stroke();
       }
       if (this.graphics === "modern") {
-        const thrust = this.keys.has("ArrowUp") || this.keys.has("KeyW");
+        const thrust = this.controlHeld("ArrowUp") || this.controlHeld("KeyW");
         const boost =
-          (this.keys.has("ShiftLeft") || this.keys.has("ShiftRight")) &&
+          (this.controlHeld("ShiftLeft") || this.controlHeld("ShiftRight")) &&
           this.state.boost > 1;
         drawModernShip(
           ctx,
@@ -1396,6 +1462,7 @@ export class AsteroidsEngine {
   }
   private loop = (now: number) => {
     if (this.destroyed) return;
+    this.pollGamepad();
     const dt = this.last ? Math.min((now - this.last) / 1000, 0.033) : 0;
     this.last = now;
     if (!document.hidden) {
@@ -1420,11 +1487,14 @@ export class AsteroidsEngine {
     window.removeEventListener("keydown", this.keydown);
     window.removeEventListener("keyup", this.keyup);
     window.removeEventListener("blur", this.blur);
+    window.removeEventListener("focus", this.focus);
     document.removeEventListener("visibilitychange", this.visibility);
     if (this.audio) void this.audio.close().catch(() => {});
     this.audio = undefined;
     this.noiseBuffer = undefined;
     this.keys.clear();
+    this.gamepadKeys.clear();
+    this.gamepadButtons.clear();
     this.rocks.length = this.bullets.length = this.enemyBullets.length = 0;
     this.particles.length = this.jumps.length = this.shards.length = this.shockwaves.length = 0;
     this.puffs.length = 0;

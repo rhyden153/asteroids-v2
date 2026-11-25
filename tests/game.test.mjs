@@ -20,6 +20,9 @@ const { AsteroidsEngine } = await import(
 let game;
 let rect;
 beforeEach(() => {
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true, value: { getGamepads: () => [] },
+  });
   globalThis.window = Object.assign(new EventTarget(), {
     matchMedia: () => ({ matches: false }),
     devicePixelRatio: 1,
@@ -37,6 +40,133 @@ beforeEach(() => {
   game.start("classic");
 });
 afterEach(() => game.destroy());
+
+function controller(buttons = [], axes = [0, 0], index = 0) {
+  return { connected: true, mapping: "standard", index, axes,
+    buttons: Array.from({ length: 17 }, (_, i) => ({ pressed: buttons.includes(i), value: buttons.includes(i) ? 1 : 0 })),
+  };
+}
+
+test("controllers steer, thrust, boost, and fire alongside keyboard input", () => {
+  let pad = controller([0, 5, 7], [-0.7, 0]);
+  navigator.getGamepads = () => [null, pad];
+  game.rocks = [];
+  game.pollGamepad();
+  const angle = game.ship.angle;
+  game.update(0.1);
+  assert.ok(game.ship.angle < angle);
+  assert.ok(Math.hypot(game.ship.vx, game.ship.vy) > 0);
+  assert.ok(game.state.boost < 100);
+  assert.equal(game.bullets.length, 1);
+  game.setControl("Space", true);
+  pad = controller();
+  game.pollGamepad();
+  assert.equal(game.controlHeld("Space"), true);
+  game.setControl("Space", false);
+  assert.equal(game.controlHeld("Space"), false);
+});
+
+test("stick dead zone suppresses drift and the D-pad provides digital controls", () => {
+  navigator.getGamepads = () => [controller([], [0.2, -0.2])];
+  game.pollGamepad();
+  assert.equal(game.gamepadKeys.size, 0);
+  navigator.getGamepads = () => [controller([12, 15])];
+  game.pollGamepad();
+  assert.equal(game.controlHeld("ArrowUp"), true);
+  assert.equal(game.controlHeld("ArrowRight"), true);
+  navigator.getGamepads = () => [controller([14])];
+  game.pollGamepad();
+  assert.equal(game.controlHeld("ArrowLeft"), true);
+  assert.equal(game.controlHeld("ArrowRight"), false);
+});
+
+test("controller abilities require a fresh press after cooldown", () => {
+  let pad = controller([2, 4]);
+  navigator.getGamepads = () => [pad];
+  game.rocks = [];
+  game.pollGamepad();
+  assert.equal(game.state.hyperspaceCooldown, 3);
+  assert.equal(game.state.shieldRemaining, 2);
+  game.update(7);
+  game.pollGamepad();
+  assert.equal(game.state.hyperspaceCooldown, 0);
+  assert.equal(game.state.shieldRemaining, 0);
+  pad = controller();
+  game.pollGamepad();
+  pad = controller([2, 4]);
+  game.pollGamepad();
+  assert.equal(game.state.hyperspaceCooldown, 3);
+  assert.equal(game.state.shieldRemaining, 2);
+});
+
+test("Start pauses and resumes once per press; A and Start can launch", () => {
+  let pad = controller([9]);
+  navigator.getGamepads = () => [pad];
+  game.pollGamepad();
+  assert.equal(game.state.status, "paused");
+  game.pollGamepad();
+  assert.equal(game.state.status, "paused");
+  pad = controller(); game.pollGamepad();
+  pad = controller([9]); game.pollGamepad();
+  assert.equal(game.state.status, "playing");
+  let launches = 0;
+  game.controller.launch = () => { launches++; };
+  for (const [status, button] of [["ready", 0], ["over", 9]]) {
+    game.state.status = status;
+    pad = controller(); game.pollGamepad();
+    pad = controller([button]); game.pollGamepad(); game.pollGamepad();
+  }
+  assert.equal(launches, 2);
+});
+
+test("disconnect pauses, releases controller input, and allows reconnect", () => {
+  let pad = controller([0, 7]);
+  const connections = [];
+  game.controller.connected = connected => connections.push(connected);
+  navigator.getGamepads = () => [pad];
+  game.pollGamepad();
+  pad = null; game.pollGamepad();
+  assert.equal(game.state.status, "paused");
+  assert.equal(game.gamepadKeys.size, 0);
+  pad = controller([9]); game.pollGamepad();
+  assert.equal(game.state.status, "playing");
+  assert.deepEqual(connections, [true, false, true]);
+});
+
+test("dialogs, focus loss, and hidden pages block input and consume button edges", () => {
+  let pad = controller();
+  navigator.getGamepads = () => [pad];
+  game.pollGamepad();
+  game.controller.enabled = () => false;
+  pad = controller([2, 4, 9, 0, 7]); game.pollGamepad();
+  assert.equal(game.state.status, "playing");
+  assert.equal(game.state.shieldRemaining, 0);
+  assert.equal(game.gamepadKeys.size, 0);
+  game.controller.enabled = () => true;
+  game.pollGamepad();
+  assert.equal(game.state.status, "playing");
+  assert.equal(game.state.shieldRemaining, 0);
+  game.blur();
+  pad = controller(); game.pollGamepad();
+  pad = controller([9]); game.pollGamepad();
+  assert.equal(game.state.status, "paused");
+  game.focus(); document.hidden = true;
+  pad = controller(); game.pollGamepad();
+  pad = controller([9]); game.pollGamepad();
+  assert.equal(game.state.status, "paused");
+});
+
+test("missing/denied APIs and unrecognized controllers leave keyboard play available", () => {
+  for (const getGamepads of [undefined, () => { throw Error("Denied"); },
+    () => [{ ...controller([9]), mapping: "" }]]) {
+    navigator.getGamepads = getGamepads;
+    assert.doesNotThrow(() => game.pollGamepad());
+    assert.equal(game.state.status, "playing");
+    assert.equal(game.gamepadIndex, null);
+  }
+  game.setControl("Space", true);
+  assert.equal(game.controlHeld("Space"), true);
+});
 
 test("background pulse alternates at a slow initial cadence", () => {
   const beats = [];

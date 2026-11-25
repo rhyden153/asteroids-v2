@@ -33,6 +33,7 @@ function setGraphics(mode: GraphicsMode) {
   if (isPlaying.value) canvas.value?.focus({ preventScroll: true });
 }
 const muted = ref(false);
+const controllerConnected = ref(false);
 const modal = ref<"scores" | "about" | null>(null);
 const dialog = ref<HTMLElement>();
 let previousFocus: HTMLElement | null = null;
@@ -55,6 +56,7 @@ const {
   boards: leaderboards,
   failed: leaderboardFailed,
   refresh: refreshLeaderboards,
+  recordGame,
   submit: submitScore,
   savedInitials,
 } = useLeaderboard();
@@ -283,12 +285,9 @@ onMounted(() => {
         localStorage.setItem("asteroids-scores", JSON.stringify(scores.value));
       } catch {}
       const finalScore = next.score;
-      void refreshLeaderboards().then(async (boards) => {
+      void recordGame(finalScore).then(async (names) => {
         // Ignore the result if a new game has already started.
         if (state.value.status !== "over" || state.value.score !== finalScore) return;
-        const names = boards
-          ? LEADERBOARD_NAMES.filter((name) => qualifiesForLeaderboard(finalScore, boards[name]))
-          : [];
         qualified.value = names;
         if (!names.length) return;
         initials.value ||= savedInitials();
@@ -297,6 +296,13 @@ onMounted(() => {
       });
     }
     state.value = next;
+  }, {
+    enabled: () => !modal.value && !savingScore.value &&
+      !(document.activeElement as HTMLElement | null)?.matches(
+        "input, textarea, select, [contenteditable]:not([contenteditable='false'])",
+      ),
+    launch: () => start(),
+    connected: (connected) => { controllerConnected.value = connected; },
   });
   engine.setMuted(muted.value);
   engine.setGraphics(graphics.value);
@@ -703,6 +709,17 @@ onBeforeUnmount(() => {
               <div><span>Pause</span><kbd>P</kbd></div>
               <div><span>Fullscreen</span><kbd>F</kbd></div>
             </div>
+            <p role="status">{{ controllerConnected ? "Controller connected" : "Using a controller? Plug it in and press a button." }}</p>
+            <div class="controls-list" aria-label="Controller controls">
+              <div><span>Rotate / thrust</span><span>Left stick / D-pad</span></div>
+              <div><span>Thrust</span><span>RT / R2</span></div>
+              <div><span>Fire / launch</span><span>A / Cross</span></div>
+              <div><span>Boost + thrust</span><span>RB / R1</span></div>
+              <div><span>Hyperspace</span><span>X / Square</span></div>
+              <div><span>Shield</span><span>LB / L1</span></div>
+              <div><span>Launch / pause</span><span>Start / Options</span></div>
+            </div>
+            <p>Supports controllers recognized by your browser with a standard gamepad layout.</p>
             <div class="pilot-tip">
               <AppIcon name="spark" />
               <p>
