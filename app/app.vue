@@ -691,10 +691,6 @@ onBeforeUnmount(() => {
               ><AppIcon name="crosshair" />
             </div>
             <h2>Small ship.<br />Big universe.</h2>
-            <p>
-              You know the drill. Keep moving,<br class="desktop-break" />
-              keep shooting, don’t hit the rocks.
-            </p>
             <div class="controls-list">
               <div>
                 <span>Rotate</span
@@ -716,24 +712,7 @@ onBeforeUnmount(() => {
               <div><span>Pause</span><kbd>P</kbd></div>
               <div><span>Fullscreen</span><kbd>F</kbd></div>
             </div>
-            <p role="status">{{ controllerConnected ? "Controller connected" : "Using a controller? Plug it in and press a button." }}</p>
-            <div class="controls-list" aria-label="Controller controls">
-              <div><span>Rotate / thrust</span><span>Left stick / D-pad</span></div>
-              <div><span>Thrust</span><span>RT / R2</span></div>
-              <div><span>Fire / launch</span><span>A / Cross</span></div>
-              <div><span>Boost + thrust</span><span>RB / R1</span></div>
-              <div><span>Hyperspace</span><span>X / Square</span></div>
-              <div><span>Shield</span><span>LB / L1</span></div>
-              <div><span>Launch / pause</span><span>Start / Options</span></div>
-            </div>
-            <p>Supports controllers recognized by your browser with a standard gamepad layout.</p>
-            <div class="pilot-tip">
-              <AppIcon name="spark" />
-              <p>
-                <strong>A little tip</strong>The edges aren’t the end.<br />Fly
-                off one side, appear on the other.
-              </p>
-            </div>
+            <p role="status">{{ controllerConnected ? "Controller connected" : "Using a controller? Plug it in and press a button." }}</p>            
           </section>
           <section class="score-card">
             <div class="card-heading">
@@ -795,8 +774,8 @@ onBeforeUnmount(() => {
             <span class="status-dot"></span> Old-school soul. New-school orbit.
           </div>
         </aside>
+        <NeoGamesBanner class="collection-section" />
       </div>
-      <NeoGamesBanner class="collection-section" />
       <footer class="site-footer">
         <span>A LOVE LETTER TO THE ARCADE.</span
         ><span

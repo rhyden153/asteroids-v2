@@ -196,6 +196,14 @@ kbd {
   gap: 25px;
   align-items: stretch;
 }
+.game-panel,
+.game-layout > .collection-section {
+  width: 90%;
+  margin-left: auto;
+}
+.game-layout > .collection-section {
+  grid-column: 1;
+}
 .game-panel {
   display: flex;
   flex-direction: column;
