@@ -372,7 +372,7 @@ onBeforeUnmount(() => {
               <span class="instrument-label">LIVES</span>
               <div class="life-ships">
                 <AppIcon
-                  v-for="life in 3"
+                  v-for="life in Math.max(3, state.lives)"
                   :key="life"
                   name="ship"
                   :class="{ lost: life > state.lives }"
@@ -884,7 +884,7 @@ onBeforeUnmount(() => {
           </p>
           <p>
             Classic gives you three lives. Hardcore gives you one, with faster
-            asteroids. Clear the field to advance to the next wave. Hold Shift
+            asteroids. Earn an extra ship every 50,000 points. Clear the field to advance to the next wave. Hold Shift
             while thrusting for a rechargeable boost.
           </p>
           <p>

@@ -96,6 +96,7 @@ const HYPERSPACE_CLEARANCE = 70;
 const HYPERSPACE_LOOKAHEAD = 1.5;
 const ROCK_RADII = [0, 15, 30, 56] as const;
 const ROCK_SCORES = [0, 100, 50, 20] as const;
+const EXTRA_SHIP_SCORE = 50_000;
 const random = (min: number, max: number) => min + Math.random() * (max - min);
 const tickTimer = (remaining: number, dt: number) =>
   remaining - dt > 1e-9 ? remaining - dt : 0;
@@ -802,6 +803,11 @@ export class AsteroidsEngine {
     };
     this.ufoVisits++;
   }
+  private addScore(points: number) {
+    const previousMilestone = Math.floor(this.state.score / EXTRA_SHIP_SCORE);
+    this.state.score += points;
+    this.state.lives += Math.floor(this.state.score / EXTRA_SHIP_SCORE) - previousMilestone;
+  }
   private removeUfo(explode: boolean, awardPoints = false) {
     if (!this.ufo) return;
     if (explode) {
@@ -810,7 +816,7 @@ export class AsteroidsEngine {
         this.tone(240, 0.3, "sawtooth", 0.06, 35);
       this.shake = this.reducedMotion ? 0 : 3;
     }
-    if (awardPoints) this.state.score += this.ufo.kind === "small" ? 1000 : 200;
+    if (awardPoints) this.addScore(this.ufo.kind === "small" ? 1000 : 200);
     this.ufo = null;
     this.ufoTimer = random(18, 30) / (this.difficulty === "hardcore" ? 1.2 : 1);
     if (awardPoints) this.emit();
@@ -888,7 +894,7 @@ export class AsteroidsEngine {
   private breakRock(index: number, awardPoints: boolean) {
     const rock = this.rocks.splice(index, 1)[0]!;
     this.rockSprites.delete(rock);
-    if (awardPoints) this.state.score += ROCK_SCORES[rock.size]!;
+    if (awardPoints) this.addScore(ROCK_SCORES[rock.size]!);
     this.burst(rock.x, rock.y, rock.size * 7, "#c3cf9d", 130);
     if (rock.size > 1) {
       for (let i = 0; i < 2; i++) {

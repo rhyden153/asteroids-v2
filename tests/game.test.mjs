@@ -41,6 +41,53 @@ beforeEach(() => {
 });
 afterEach(() => game.destroy());
 
+test("asteroid points award one extra ship at each 50,000-point milestone in both modes", () => {
+  for (const difficulty of ["classic", "hardcore"]) {
+    game.start(difficulty);
+    const initialLives = game.state.lives;
+    const shootRock = () => {
+      game.rocks = [game.makeRock(30, 30, 1)];
+      game.breakRock(0, true);
+    };
+    game.state.score = 49_800;
+    shootRock();
+    assert.equal(game.state.lives, initialLives);
+    shootRock();
+    assert.equal(game.state.score, 50_000);
+    assert.equal(game.state.lives, initialLives + 1);
+    shootRock();
+    assert.equal(game.state.lives, initialLives + 1);
+    game.state.score = 99_900;
+    shootRock();
+    assert.equal(game.state.lives, initialLives + 2);
+    game.start(difficulty);
+    assert.equal(game.state.score, 0);
+    assert.equal(game.state.lives, initialLives);
+    game.state.score = 49_900;
+    shootRock();
+    assert.equal(game.state.lives, initialLives + 1);
+  }
+});
+
+test("UFO points grant an extra ship when passing a milestone; unscored kills grant none", () => {
+  game.state.score = 49_500;
+  game.spawnUfo("small");
+  game.removeUfo(false, true);
+  assert.equal(game.state.score, 50_500);
+  assert.equal(game.state.lives, 4);
+  game.state.score = 99_900;
+  game.spawnUfo("large");
+  game.removeUfo(false);
+  game.rocks = [game.makeRock(30, 30, 1)];
+  game.breakRock(0, false);
+  assert.equal(game.state.score, 99_900);
+  assert.equal(game.state.lives, 4);
+  game.spawnUfo("large");
+  game.removeUfo(false, true);
+  assert.equal(game.state.score, 100_100);
+  assert.equal(game.state.lives, 5);
+});
+
 test("the background chase begins at 25 asteroids and finishes even if the field thins", () => {
   game.rocks = Array.from({ length: 24 }, () => game.makeRock(30, 30, 1));
   game.update(0);
